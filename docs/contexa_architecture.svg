@@ -1,0 +1,212 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 820" width="1400" height="820" font-family="Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif">
+  <title>Contexa 시스템 아키텍처</title>
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#475569"/>
+    </marker>
+    <g id="cyl">
+      <path d="M0 7 V27 A14 6 0 0 0 28 27 V7" fill="#fff" stroke="#334155" stroke-width="1.2"/>
+      <ellipse cx="14" cy="7" rx="14" ry="6" fill="#fff" stroke="#334155" stroke-width="1.2"/>
+      <path d="M0 17 A14 6 0 0 0 28 17" fill="none" stroke="#334155" stroke-width="1"/>
+    </g>
+    <style>
+      .frame { fill: none; stroke: #64748B; stroke-width: 1.3; stroke-dasharray: 6 4; }
+      .div { stroke: #64748B; stroke-width: 1.1; stroke-dasharray: 6 4; }
+      .z { fill: none; stroke: #94A3B8; stroke-width: 1.2; stroke-dasharray: 5 4; }
+      .za { fill: #EEF2FF; stroke: #4F46E5; stroke-width: 1.2; stroke-dasharray: 5 4; }
+      .n { fill: #fff; stroke: #334155; stroke-width: 1.2; }
+      .na { fill: #fff; stroke: #4F46E5; stroke-width: 1.6; }
+      .t { font-size: 13px; font-weight: 500; fill: #0F172A; text-anchor: middle; dominant-baseline: central; }
+      .zt { font-size: 12px; fill: #475569; text-anchor: middle; }
+      .zta { font-size: 12px; fill: #4F46E5; font-weight: 600; text-anchor: middle; }
+      .c { font-size: 11.5px; fill: #64748B; text-anchor: middle; }
+      .rl { font-size: 13px; font-weight: 700; fill: #0F172A; text-anchor: end; }
+      .dt { font-size: 13px; font-weight: 600; fill: #0F172A; }
+      .ds { font-size: 11.5px; fill: #64748B; }
+      .a { stroke: #475569; stroke-width: 1.3; fill: none; marker-end: url(#ar); }
+      .ab { stroke: #475569; stroke-width: 1.3; fill: none; marker-end: url(#ar); marker-start: url(#ar); }
+    </style>
+  </defs>
+
+  <rect width="1400" height="820" fill="#fff"/>
+  <text x="30" y="44" font-size="22" font-weight="700" fill="#0F172A">Contexa 시스템 아키텍처</text>
+
+  <rect class="frame" x="30" y="70" width="1340" height="720"/>
+  <line class="div" x1="250" y1="70" x2="250" y2="790"/>
+  <line class="div" x1="250" y1="260" x2="1370" y2="260"/>
+  <line class="div" x1="250" y1="540" x2="1370" y2="540"/>
+  <line class="div" x1="250" y1="660" x2="1370" y2="660"/>
+
+  <!-- 클라이언트 -->
+  <text x="140" y="96" font-size="13" font-weight="700" fill="#0F172A" text-anchor="middle">클라이언트</text>
+  <circle cx="140" cy="150" r="11" fill="#fff" stroke="#334155" stroke-width="1.2"/>
+  <path d="M120 186 A20 18 0 0 1 160 186 Z" fill="#fff" stroke="#334155" stroke-width="1.2"/>
+  <text class="t" x="140" y="204">사용자</text>
+  <text class="c" x="140" y="224">KO · EN · AR</text>
+  <line class="a" x1="140" y1="234" x2="140" y2="264"/>
+  <rect class="n" x="75" y="268" width="130" height="50" rx="6"/>
+  <text class="t" x="140" y="293">React 웹</text>
+  <rect class="n" x="75" y="420" width="130" height="50" rx="6"/>
+  <text class="t" x="140" y="445">AI 에이전트</text>
+  <path class="a" d="M205 293 H222 V350 H276"/>
+  <text class="c" x="214" y="340" style="text-anchor:end">HTTPS</text>
+  <line class="a" x1="205" y1="445" x2="276" y2="445"/>
+  <text class="c" x="226" y="436">MCP</text>
+
+  <!-- AI 처리부 -->
+  <text class="rl" x="1340" y="94">AI 처리부 · Python · FastAPI</text>
+
+  <text class="zt" x="355" y="116">워커</text>
+  <rect class="z" x="280" y="124" width="150" height="112" rx="4"/>
+  <rect class="n" x="296" y="158" width="118" height="44" rx="6"/>
+  <text class="t" x="355" y="180">Job Worker</text>
+
+  <text class="zta" x="680" y="116">LangGraph 파이프라인</text>
+  <rect class="za" x="460" y="124" width="440" height="112" rx="4"/>
+  <rect class="na" x="476" y="158" width="120" height="44" rx="6"/>
+  <text class="t" x="536" y="180">분할 · 임베딩</text>
+  <rect class="na" x="620" y="158" width="120" height="44" rx="6"/>
+  <text class="t" x="680" y="180">후보 추출</text>
+  <rect class="na" x="764" y="158" width="120" height="44" rx="6"/>
+  <text class="t" x="824" y="180">생성 · 검증</text>
+  <line class="a" x1="596" y1="180" x2="617" y2="180"/>
+  <line class="a" x1="740" y1="180" x2="761" y2="180"/>
+  <text class="c" x="536" y="222">PARSE</text>
+  <text class="c" x="680" y="222">EXTRACT</text>
+  <text class="c" x="824" y="222">GENERATE</text>
+
+  <text class="zt" x="1005" y="116">모델 연결</text>
+  <rect class="z" x="930" y="124" width="150" height="112" rx="4"/>
+  <rect class="na" x="946" y="158" width="118" height="44" rx="6"/>
+  <text class="t" x="1005" y="180">LangChain</text>
+
+  <text class="zt" x="1225" y="116">외부 서비스</text>
+  <rect class="z" x="1110" y="124" width="230" height="112" rx="4"/>
+  <rect class="n" x="1122" y="158" width="102" height="44" rx="6"/>
+  <text class="t" x="1173" y="180">CLOVA Studio</text>
+  <rect class="n" x="1232" y="158" width="96" height="44" rx="6"/>
+  <text class="t" x="1280" y="180">LangSmith</text>
+  <text class="c" x="1173" y="222">LLM · 임베딩</text>
+  <text class="c" x="1280" y="222">추적 · 평가</text>
+
+  <line class="a" x1="430" y1="180" x2="457" y2="180"/>
+  <line class="a" x1="900" y1="180" x2="927" y2="180"/>
+  <line class="a" x1="1080" y1="180" x2="1107" y2="180"/>
+
+  <line class="ab" x1="400" y1="240" x2="400" y2="308"/>
+  <text class="c" x="410" y="282" style="text-anchor:start">작업 · 문맥 · 후보</text>
+
+  <!-- 업무 서버 -->
+  <text class="rl" x="1340" y="284">업무 서버 · Java 21 · Spring Boot</text>
+
+  <text class="zt" x="355" y="304">API</text>
+  <rect class="z" x="280" y="312" width="150" height="212" rx="4"/>
+  <rect class="n" x="296" y="328" width="118" height="44" rx="6"/>
+  <text class="t" x="355" y="350">REST API</text>
+  <rect class="n" x="296" y="396" width="118" height="44" rx="6"/>
+  <text class="t" x="355" y="418">MCP 도구</text>
+  <rect class="n" x="296" y="464" width="118" height="44" rx="6"/>
+  <text class="t" x="355" y="486">작업 API</text>
+
+  <text class="zt" x="605" y="304">읽기 경로</text>
+  <rect class="z" x="460" y="312" width="290" height="92" rx="4"/>
+  <rect class="n" x="474" y="336" width="126" height="44" rx="6"/>
+  <text class="t" x="537" y="358">Context Gateway</text>
+  <rect class="n" x="630" y="336" width="106" height="44" rx="6"/>
+  <text class="t" x="683" y="358">하이브리드 검색</text>
+  <line class="a" x1="600" y1="358" x2="627" y2="358"/>
+
+  <text class="zt" x="605" y="424">쓰기 경로</text>
+  <rect class="z" x="460" y="432" width="290" height="92" rx="4"/>
+  <rect class="n" x="474" y="456" width="126" height="44" rx="6"/>
+  <text class="t" x="537" y="478">사람 검토</text>
+  <rect class="n" x="630" y="456" width="106" height="44" rx="6"/>
+  <text class="t" x="683" y="478">영향 추적</text>
+  <line class="a" x1="600" y1="478" x2="627" y2="478"/>
+
+  <text class="zt" x="925" y="304">도메인</text>
+  <rect class="z" x="780" y="312" width="290" height="212" rx="4"/>
+  <rect class="n" x="794" y="328" width="126" height="44" rx="6"/>
+  <text class="t" x="857" y="350">결정 그래프</text>
+  <rect class="n" x="930" y="328" width="126" height="44" rx="6"/>
+  <text class="t" x="993" y="350">결정 · 업무</text>
+  <rect class="n" x="794" y="396" width="126" height="44" rx="6"/>
+  <text class="t" x="857" y="418">이름 확인</text>
+  <rect class="n" x="930" y="396" width="126" height="44" rx="6"/>
+  <text class="t" x="993" y="418">원문 근거</text>
+  <rect class="na" x="794" y="464" width="126" height="44" rx="6"/>
+  <text class="t" x="857" y="486">LLM 위키 · 생성</text>
+  <rect class="n" x="930" y="464" width="126" height="44" rx="6"/>
+  <text class="t" x="993" y="486">권한 · 인증</text>
+
+  <text class="zt" x="1220" y="304">운영 · 공통</text>
+  <rect class="z" x="1100" y="312" width="240" height="212" rx="4"/>
+  <rect class="n" x="1120" y="328" width="200" height="44" rx="6"/>
+  <text class="t" x="1220" y="350">작업 큐</text>
+  <rect class="n" x="1120" y="396" width="200" height="44" rx="6"/>
+  <text class="t" x="1220" y="418">결과 파이프라인</text>
+  <rect class="n" x="1120" y="464" width="200" height="44" rx="6"/>
+  <text class="t" x="1220" y="486">온톨로지 계약</text>
+
+  <line class="a" x1="430" y1="358" x2="457" y2="358"/>
+  <line class="a" x1="430" y1="478" x2="457" y2="478"/>
+  <line class="a" x1="750" y1="358" x2="777" y2="358"/>
+  <line class="a" x1="750" y1="478" x2="777" y2="478"/>
+  <line class="a" x1="1070" y1="418" x2="1097" y2="418"/>
+
+  <!-- 데이터 -->
+  <text class="rl" x="1340" y="562">데이터</text>
+  <line class="a" x1="810" y1="524" x2="810" y2="568"/>
+  <text class="c" x="820" y="556" style="text-anchor:start">JDBC</text>
+
+  <rect class="z" x="280" y="572" width="196" height="72" rx="4"/>
+  <use href="#cyl" x="296" y="591"/>
+  <text class="dt" x="338" y="602">PostgreSQL 16</text>
+  <text class="ds" x="338" y="622">업무 원장</text>
+
+  <rect class="z" x="496" y="572" width="196" height="72" rx="4"/>
+  <use href="#cyl" x="512" y="591"/>
+  <text class="dt" x="554" y="602">graph_edge</text>
+  <text class="ds" x="554" y="622">결정 그래프</text>
+
+  <rect class="z" x="712" y="572" width="196" height="72" rx="4"/>
+  <use href="#cyl" x="728" y="591"/>
+  <text class="dt" x="770" y="602">pgvector</text>
+  <text class="ds" x="770" y="622">임베딩 검색</text>
+
+  <rect class="z" x="928" y="572" width="196" height="72" rx="4"/>
+  <use href="#cyl" x="944" y="591"/>
+  <text class="dt" x="986" y="602">Checkpoint</text>
+  <text class="ds" x="986" y="622">LangGraph 복구</text>
+
+  <rect class="z" x="1144" y="572" width="196" height="72" rx="4"/>
+  <use href="#cyl" x="1160" y="591"/>
+  <text class="dt" x="1202" y="602">Object Storage</text>
+  <text class="ds" x="1202" y="622">원본 문서</text>
+
+  <!-- 처리 흐름 -->
+  <text x="280" y="723" font-size="19" font-weight="700" fill="#0F172A">처리 흐름</text>
+  <rect class="n" x="400" y="694" width="130" height="44" rx="6"/>
+  <text class="t" x="465" y="716">자료 업로드</text>
+  <rect class="na" x="560" y="694" width="130" height="44" rx="6"/>
+  <text class="t" x="625" y="716">발언 분할</text>
+  <rect class="na" x="720" y="694" width="130" height="44" rx="6"/>
+  <text class="t" x="785" y="716">후보 추출</text>
+  <rect class="n" x="880" y="694" width="130" height="44" rx="6"/>
+  <text class="t" x="945" y="716">사람 확인</text>
+  <rect class="na" x="1040" y="694" width="130" height="44" rx="6"/>
+  <text class="t" x="1105" y="716">근거 답변</text>
+  <rect class="na" x="1200" y="694" width="130" height="44" rx="6"/>
+  <text class="t" x="1265" y="716">위키 갱신</text>
+  <line class="a" x1="530" y1="716" x2="557" y2="716"/>
+  <line class="a" x1="690" y1="716" x2="717" y2="716"/>
+  <line class="a" x1="850" y1="716" x2="877" y2="716"/>
+  <line class="a" x1="1010" y1="716" x2="1037" y2="716"/>
+  <line class="a" x1="1170" y1="716" x2="1197" y2="716"/>
+  <text class="c" x="465" y="760">사용자</text>
+  <text class="c" x="625" y="760">AI · PARSE</text>
+  <text class="c" x="785" y="760">AI · EXTRACT</text>
+  <text class="c" x="945" y="760">Human-in-the-loop</text>
+  <text class="c" x="1105" y="760">AI · GENERATE</text>
+  <text class="c" x="1265" y="760">AI · GENERATE</text>
+</svg>
