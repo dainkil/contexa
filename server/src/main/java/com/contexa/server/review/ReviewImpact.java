@@ -1,0 +1,785 @@
+package com.contexa.server.review;
+
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.contexa.server.contract.Caller;
+import com.contexa.server.contract.Direction;
+import com.contexa.server.contract.Edge;
+import com.contexa.server.contract.EdgeDraft;
+import com.contexa.server.contract.GraphCandidates;
+import com.contexa.server.contract.NodeDraft;
+import com.contexa.server.contract.NodeKey;
+import com.contexa.server.contract.NodeRef;
+import com.contexa.server.contract.NodeType;
+import com.contexa.server.contract.Ontology;
+import com.contexa.server.contract.RelType;
+import com.contexa.server.contract.ReviewStatus;
+import com.contexa.server.decision.DecisionTask;
+import com.contexa.server.decision.NodeNotFoundException;
+import com.contexa.server.contract.NodeView;
+import com.contexa.server.decision.TaskStatus;
+import com.contexa.server.document.DocumentEvidence;
+import com.contexa.server.document.Span;
+import com.contexa.server.entity.EntityReview;
+import com.contexa.server.graph.DecisionGraph;
+import com.contexa.server.graph.Subgraph;
+import com.contexa.server.identity.IdentityAccess;
+import com.contexa.server.identity.NotAllowedException;
+
+/**
+ * 결재 창구: 결정 정보를 바꾸는 유일한 곳.
+ *
+ * <ul>
+ * <li>AI와 외부 에이전트는 {@link #submitCandidates}로 후보(연필)만 낼 수 있다.</li>
+ * <li>확인·보류·거절·철회·정정(도장)은 사람만, 그중에서도 프로젝트의 OWNER와 REVIEWER만 할 수 있다.</li>
+ * <li>검토는 카드 한 장과 그 카드에 딸린 줄을 한 묶음으로 한다. 줄은 "기대는 쪽" 카드에 딸린다.
+ * 다만 안건–항목, 항목–사건 줄은 아래쪽 카드(항목, 사건)에 딸린다. 새 사건을 확인할 때
+ * "어느 항목의 사건인지"도 함께 확인해야 하기 때문이다.</li>
+ * <li>바꾼 뒤에는 걸린 계산 결과를 다시 계산하게 하고, 영향받는 카드 목록을 돌려준다.</li>
+ * <li>근거로 대는 발언은 자료실에 실제로 있어야 하고, 대는 사람이 읽을 수 있는 문서의 것이어야 한다.</li>
+ * <li>묶음의 근거를 하나도 읽을 수 없는 사람에게는 그 묶음이 보이지 않는다(개인 메모에서 나온 후보).</li>
+ * </ul>
+ *
+ * 확인할 때 지키는 것:
+ * <ul>
+ * <li>결정 사건·조건·할 일 카드는 확인된 근거 줄이 하나 이상 있어야 확인 상태일 수 있다.</li>
+ * <li>카드가 확인되지 않았으면 그 카드에 딸린 줄도 확인할 수 없다.</li>
+ * <li>건너편 카드가 거절·철회됐거나 없으면 그 줄은 확인할 수 없다. 건너편이 아직 후보인 것은 괜찮다.</li>
+ * <li>대체 줄은 확정·변경 사건끼리만, 철회 줄은 철회 사건에서 확정·변경 사건으로만 확인할 수 있다.</li>
+ * </ul>
+ */
+@Service
+public class ReviewImpact {
+
+	private static final Set<ReviewStatus> ACTIVE =
+			EnumSet.of(ReviewStatus.CANDIDATE, ReviewStatus.CONFIRMED, ReviewStatus.HELD);
+
+	/** 아래쪽 카드에 딸리는 줄. */
+	private static final Set<RelType> OWNED_BY_DST = EnumSet.of(RelType.HAS_ITEM, RelType.HAS_EVENT);
+
+	/** 기대는 쪽 카드에 딸리는 줄. 시스템이 기록하는 줄은 검토 대상이 아니다. */
+	private static final Set<RelType> OWNED_BY_SRC = ownedBySrc();
+
+	/** 근거 줄이 있어야 확인 상태일 수 있는 카드. */
+	private static final Set<NodeType> NEEDS_EVIDENCE =
+			EnumSet.of(NodeType.DECISION_EVENT, NodeType.CONDITION, NodeType.TASK);
+
+	private record ItemRow(UUID id, UUID projectId, NodeKey owner, ReviewItem.State state, long version) {
+	}
+
+	private record Bundle(NodeView card, List<Edge> edges) {
+	}
+
+	private final JdbcClient jdbc;
+	private final DecisionGraph graph;
+	private final DecisionTask decision;
+	private final IdentityAccess identity;
+	private final DocumentEvidence document;
+	private final EntityReview entity;
+
+	public ReviewImpact(JdbcClient jdbc, DecisionGraph graph, DecisionTask decision, IdentityAccess identity,
+			DocumentEvidence document, EntityReview entity) {
+		this.entity = entity;
+		this.jdbc = jdbc;
+		this.graph = graph;
+		this.decision = decision;
+		this.identity = identity;
+		this.document = document;
+	}
+
+	// ---- 후보 제출 ----
+
+	/**
+	 * 카드 후보와 줄 후보를 받아 연필로 저장하고, 검토 묶음을 만든다. 누구나(사람, AI 작업, 외부 에이전트) 낼 수 있다.
+	 * 하나라도 틀리면 아무것도 저장하지 않는다.
+	 *
+	 * <p>모든 줄 후보에는 근거 발언이 하나 이상 있어야 한다. 이미 있는 카드를 가리킬 때는 그 카드가
+	 * 이 프로젝트에 살아 있어야 한다.
+	 *
+	 * @return 새로 생기거나 다시 열린 검토 묶음의 id
+	 */
+	@Transactional
+	public List<UUID> submitCandidates(Caller source, GraphCandidates candidates) {
+		Objects.requireNonNull(source, "caller");
+		Objects.requireNonNull(candidates, "candidates");
+		UUID projectId = source.projectId();
+
+		Map<String, NodeType> draftTypes = new HashMap<>();
+		for (NodeDraft draft : candidates.nodes()) {
+			if (!isCard(draft.type())) {
+				throw new IllegalArgumentException("후보로 낼 수 없는 카드 종류다: " + draft.type());
+			}
+			if (draftTypes.put(draft.key(), draft.type()) != null) {
+				throw new IllegalArgumentException("같은 key가 두 번 나왔다: " + draft.key());
+			}
+		}
+		List<NodeRef> existing = new ArrayList<>();
+		Set<UUID> citedSpans = new LinkedHashSet<>();
+		for (EdgeDraft edge : candidates.edges()) {
+			NodeType srcType = endType(edge.srcKey(), edge.srcRef(), draftTypes);
+			NodeType dstType = endType(edge.dstKey(), edge.dstRef(), draftTypes);
+			if (edge.rel().isSystemRecorded()) {
+				throw new IllegalArgumentException(edge.rel() + " 줄은 시스템이 기록한다. 후보로 낼 수 없다");
+			}
+			if (!Ontology.isAllowed(edge.rel(), srcType, dstType)) {
+				throw new IllegalArgumentException("허용되지 않은 줄: " + srcType + " -" + edge.rel() + "-> " + dstType);
+			}
+			if (edge.evidenceSpanIds().isEmpty()) {
+				throw new IllegalArgumentException("근거 발언이 없는 줄 후보다: " + srcType + " -" + edge.rel() + "-> " + dstType);
+			}
+			citedSpans.addAll(edge.evidenceSpanIds());
+			for (NodeRef ref : new NodeRef[] { edge.srcRef(), edge.dstRef() }) {
+				if (ref == null) {
+					continue;
+				}
+				existing.add(ref);
+				if (ref.type() == NodeType.SPAN) {
+					citedSpans.add(ref.id());
+				}
+			}
+		}
+		Map<UUID, Span> spans = requireReadableSpans(source, citedSpans);
+		Map<NodeKey, NodeView> alive = aliveCards(projectId, existing);
+		for (NodeRef ref : existing) {
+			if (isCard(ref.type()) && !alive.containsKey(ref.key())) {
+				throw new NodeNotFoundException(ref.type(), ref.id());
+			}
+		}
+
+		// 카드 후보는 종류에 따라 담당 부서에 맡긴다. 낸 순서는 유지한다
+		Map<String, NodeRef> byDecision = decision.saveCandidates(projectId,
+				candidates.nodes().stream().filter(draft -> draft.type() != NodeType.ENTITY).toList());
+		Map<String, NodeRef> byEntity = entity.saveCandidates(projectId,
+				candidates.nodes().stream().filter(draft -> draft.type() == NodeType.ENTITY).toList());
+		Map<String, NodeRef> saved = new LinkedHashMap<>();
+		candidates.nodes().forEach(draft -> saved.put(draft.key(),
+				draft.type() == NodeType.ENTITY ? byEntity.get(draft.key()) : byDecision.get(draft.key())));
+		Set<NodeKey> owners = new LinkedHashSet<>();
+		saved.values().forEach(ref -> owners.add(ref.key()));
+		for (EdgeDraft draft : candidates.edges()) {
+			NodeRef src = draft.srcKey() != null ? saved.get(draft.srcKey()) : current(alive, spans, draft.srcRef());
+			NodeRef dst = draft.dstKey() != null ? saved.get(draft.dstKey()) : current(alive, spans, draft.dstRef());
+			Edge edge = new Edge(UUID.randomUUID(), projectId, draft.rel(), src, dst, ReviewStatus.CANDIDATE,
+					draft.evidenceSpanIds(), null, null, Ontology.VERSION, 1);
+			graph.addCandidateEdge(edge);
+			owners.add(ownerOf(edge).key());
+		}
+
+		List<UUID> reviewIds = new ArrayList<>();
+		for (NodeKey owner : owners) {
+			reviewIds.add(touch(projectId, owner));
+		}
+		return reviewIds;
+	}
+
+	// ---- 검토 ----
+
+	/** 검토함. 만들어진 순서로 돌려준다. */
+	@Transactional(readOnly = true)
+	public List<ReviewItem> listReviews(Caller caller, ReviewFilter filter) {
+		Objects.requireNonNull(caller, "caller");
+		ReviewFilter f = filter == null ? ReviewFilter.open() : filter;
+		ReviewItem.State state = f.state() == null ? ReviewItem.State.OPEN : f.state();
+		String sql = "select id, project_id, owner_type, owner_id, state, version from review_item"
+				+ " where project_id = :projectId and state = :state"
+				+ (f.ownerType() == null ? "" : " and owner_type = :ownerType")
+				+ " order by created_at, id";
+		JdbcClient.StatementSpec spec = jdbc.sql(sql).param("projectId", caller.projectId())
+				.param("state", state.name());
+		if (f.ownerType() != null) {
+			spec = spec.param("ownerType", f.ownerType().name());
+		}
+		Set<UUID> readable = identity.readableDocumentIds(caller);
+		return spec.query(ReviewImpact::mapItem).list().stream()
+				.filter(item -> visibleTo(caller, readable, bundle(item)))
+				.map(this::view)
+				.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public ReviewItem getReview(Caller caller, UUID reviewId) {
+		Objects.requireNonNull(caller, "caller");
+		ItemRow item = findItem(caller.projectId(), reviewId, false);
+		requireVisible(caller, item, bundle(item));
+		return view(item);
+	}
+
+	/**
+	 * 검토 묶음을 처리한다: 카드와 딸린 줄을 확인·보류·거절·철회하고, 필요하면 카드 내용을 정정한다.
+	 * 처리할 수 없는 것이 하나라도 있으면 아무것도 바꾸지 않는다.
+	 *
+	 * @param expectedVersion 검토자가 화면에서 본 묶음 버전
+	 * @param idempotencyKey  이 요청을 가리키는 값. 같은 값으로 다시 오면 두 번 처리하지 않고 현재 묶음을 돌려준다
+	 */
+	@Transactional
+	public ReviewResult applyAction(Caller caller, UUID reviewId, ReviewAction action, long expectedVersion,
+			String idempotencyKey) {
+		requireReviewer(caller);
+		Objects.requireNonNull(action, "action");
+		if (idempotencyKey == null || idempotencyKey.isBlank()) {
+			throw new IllegalArgumentException("idempotencyKey가 비어 있다");
+		}
+		UUID projectId = caller.projectId();
+		ItemRow item = findItem(projectId, reviewId, true);
+		if (alreadyApplied(projectId, idempotencyKey)) {
+			return new ReviewResult(view(item), List.of());
+		}
+		if (item.version() != expectedVersion) {
+			throw new ReviewVersionConflictException(reviewId, expectedVersion, item.version());
+		}
+		Bundle bundle = bundle(item);
+		requireVisible(caller, item, bundle);
+		List<UUID> newEvidence = new ArrayList<>();
+		action.edgeEvidence().values().forEach(newEvidence::addAll);
+		requireReadableSpans(caller, newEvidence);
+		NodeView card = bundle.card();
+
+		// 1. 무엇을 어떻게 바꿀지 먼저 정한다
+		if (card == null && (action.card() != null || !action.corrections().isEmpty())) {
+			throw new IllegalArgumentException("이 묶음에는 판단하거나 정정할 카드 내용이 없다");
+		}
+		ReviewStatus cardFinal = card == null ? null
+				: action.card() == null ? card.status() : target(action.card(), card.status(), "카드");
+		Map<UUID, Edge> owned = new LinkedHashMap<>();
+		bundle.edges().forEach(edge -> owned.put(edge.id(), edge));
+		for (UUID edgeId : action.edges().keySet()) {
+			if (!owned.containsKey(edgeId)) {
+				throw new IllegalArgumentException("이 묶음에 딸린 줄이 아니다: " + edgeId);
+			}
+		}
+		Map<UUID, ReviewStatus> edgeFinal = new LinkedHashMap<>();
+		for (Edge edge : bundle.edges()) {
+			Verdict verdict = action.edges().containsKey(edge.id()) ? action.edges().get(edge.id())
+					: followCard(action.card(), edge.status());
+			edgeFinal.put(edge.id(), verdict == null ? edge.status() : target(verdict, edge.status(), "줄"));
+		}
+
+		// 2. 바꾸기 전에 전부 검사한다
+		validate(projectId, item.owner(), card, action, cardFinal, bundle.edges(), edgeFinal);
+
+		// 3. 바꾼다
+		Set<NodeRef> changed = new LinkedHashSet<>();
+		NodeRef cardRef = card == null ? null : card.ref();
+		boolean person = card != null && card.ref().type() == NodeType.ENTITY;
+		if (!action.corrections().isEmpty()) {
+			cardRef = person ? entity.updateFields(cardRef, action.corrections(), cardRef.revision())
+					: decision.updateFields(cardRef, action.corrections(), cardRef.revision());
+			changed.add(cardRef);
+		}
+		if (card != null && cardFinal != card.status()) {
+			cardRef = person ? entity.setNodeStatus(cardRef, cardFinal, caller.id(), cardRef.revision())
+					: decision.setNodeStatus(cardRef, cardFinal, caller.id(), cardRef.revision());
+			changed.add(cardRef);
+		}
+		for (Edge edge : bundle.edges()) {
+			ReviewStatus next = edgeFinal.get(edge.id());
+			if (next == edge.status()) {
+				continue;
+			}
+			List<UUID> evidence = next == ReviewStatus.CONFIRMED ? action.edgeEvidence().get(edge.id()) : null;
+			Edge updated = graph.setEdgeStatus(edge.id(), next, caller.id(), evidence, edge.version());
+			decision.onEdgeChanged(updated);
+			changed.add(updated.src());
+		}
+
+		// 4. 기록하고, 묶음 상태를 맞춘다
+		jdbc.sql("""
+				insert into review_action (id, project_id, review_id, actor_id, idempotency_key, summary)
+				values (:id, :projectId, :reviewId, :actor, :key, :summary)
+				""")
+				.param("id", UUID.randomUUID())
+				.param("projectId", projectId)
+				.param("reviewId", reviewId)
+				.param("actor", caller.id())
+				.param("key", idempotencyKey)
+				.param("summary", summarize(action, card, cardFinal, bundle.edges(), edgeFinal))
+				.update();
+		touch(projectId, item.owner());
+		return new ReviewResult(view(findItem(projectId, reviewId, false)), impactsOf(projectId, changed));
+	}
+
+	// ---- 업무와 조건 ----
+
+	/** 할 일의 진행 상태를 바꾼다. 프로젝트 구성원인 사람이면 할 수 있다. */
+	@Transactional
+	public Changed changeTaskStatus(Caller caller, UUID taskId, TaskStatus status, long expectedRevision) {
+		Objects.requireNonNull(caller, "caller");
+		if (!identity.isMember(caller)) {
+			throw new NotAllowedException("업무 상태는 프로젝트 구성원만 바꿀 수 있다");
+		}
+		requireCard(caller.projectId(), new NodeRef(NodeType.TASK, taskId, 1));
+		NodeRef task = decision.changeTaskStatus(taskId, status, caller.id(), expectedRevision);
+		return new Changed(task, impactsOf(caller.projectId(), List.of(task)));
+	}
+
+	/**
+	 * 조건이 충족됐다고 확인한다. 충족시킨 것(발언, 또는 할 일)으로 가는 충족 줄을 확인한다.
+	 * 할 일로 충족되는 조건은 그 할 일이 완료되어야 실제로 충족 상태가 된다.
+	 * 되돌리려면 조건의 검토 묶음에서 그 줄을 철회한다.
+	 *
+	 * @param evidence 근거 발언. 비어 있으면 발언으로 충족될 때는 그 발언을, 이미 있는 줄이면 기존 근거를 쓴다
+	 */
+	@Transactional
+	public Changed satisfyCondition(Caller caller, UUID conditionId, NodeRef by, List<UUID> evidence) {
+		requireReviewer(caller);
+		Objects.requireNonNull(by, "by");
+		UUID projectId = caller.projectId();
+		NodeView condition = requireCard(projectId, new NodeRef(NodeType.CONDITION, conditionId, 1));
+		if (condition.status() != ReviewStatus.CONFIRMED) {
+			throw new IllegalStateException("확인되지 않은 조건은 충족으로 바꿀 수 없다: " + condition.status());
+		}
+		if (!Ontology.isAllowed(RelType.SATISFIED_BY, NodeType.CONDITION, by.type())) {
+			throw new IllegalArgumentException("조건은 발언이나 할 일로만 충족된다: " + by.type());
+		}
+		List<UUID> given = evidence == null ? List.of() : evidence;
+		List<UUID> cited = new ArrayList<>(given);
+		if (by.type() == NodeType.SPAN) {
+			cited.add(by.id());
+		}
+		Map<UUID, Span> spans = requireReadableSpans(caller, cited);
+		NodeRef target = DecisionTask.owns(by.type()) ? requireCard(projectId, by).ref() : spans.get(by.id()).ref();
+
+		Optional<Edge> existing = graph.edgesOf(projectId, condition.ref(), Direction.BASIS,
+				EnumSet.of(RelType.SATISFIED_BY), ACTIVE).stream()
+				.filter(edge -> edge.dst().sameNode(target))
+				.findFirst();
+		Edge edge;
+		if (existing.isPresent()) {
+			edge = existing.get();
+		} else {
+			List<UUID> initial = !given.isEmpty() ? given : by.type() == NodeType.SPAN ? List.of(by.id()) : List.of();
+			if (initial.isEmpty()) {
+				throw new IllegalArgumentException("할 일로 충족되는 조건에는 근거 발언이 필요하다");
+			}
+			UUID id = graph.addCandidateEdge(new Edge(UUID.randomUUID(), projectId, RelType.SATISFIED_BY,
+					condition.ref(), target, ReviewStatus.CANDIDATE, initial, null, null, Ontology.VERSION, 1));
+			edge = graph.find(id).orElseThrow();
+		}
+		if (edge.status() != ReviewStatus.CONFIRMED) {
+			Edge confirmed = graph.setEdgeStatus(edge.id(), ReviewStatus.CONFIRMED, caller.id(),
+					given.isEmpty() ? null : given, edge.version());
+			decision.onEdgeChanged(confirmed);
+		}
+		touch(projectId, condition.ref().key());
+		NodeRef now = requireCard(projectId, condition.ref()).ref();
+		return new Changed(now, impactsOf(projectId, List.of(now)));
+	}
+
+	/**
+	 * 담당자 본인이 업무를 수락하거나 거절한다. 다른 사람이나 AI가 대신할 수 없다.
+	 * 요청한 계정이 확인된 인물 카드에 연결되어 있고, 그 인물이 이 할 일을 맡는다는 줄이 확인되어 있어야 한다.
+	 * 이름이 확인됐다고 해서 수락된 것으로 치지 않는다.
+	 */
+	@Transactional
+	public Changed acceptTask(Caller caller, UUID taskId, boolean accepted) {
+		Objects.requireNonNull(caller, "caller");
+		if (!identity.isMember(caller)) {
+			throw new NotAllowedException("업무 수락은 프로젝트 구성원 본인만 할 수 있다");
+		}
+		UUID projectId = caller.projectId();
+		NodeView task = requireCard(projectId, new NodeRef(NodeType.TASK, taskId, 1));
+		UUID me = entity.entityOfAccount(projectId, caller.id())
+				.orElseThrow(() -> new NotAllowedException("이 계정은 확인된 인물 카드에 연결되어 있지 않다"));
+		boolean assigned = graph.edgesOf(projectId, task.ref(), Direction.BASIS, EnumSet.of(RelType.ASSIGNED_TO),
+				EnumSet.of(ReviewStatus.CONFIRMED)).stream().anyMatch(edge -> edge.dst().id().equals(me));
+		if (!assigned) {
+			throw new NotAllowedException("이 할 일의 담당자로 확인된 사람이 아니다");
+		}
+		NodeRef now = decision.recordAcceptance(taskId, caller.id(), accepted);
+		return new Changed(now, impactsOf(projectId, List.of(now)));
+	}
+
+	/** 이 인물·기관을 이 언어로는 이렇게 적는다고 확인한다. 검토자만 할 수 있다. 근거 발언은 없어도 된다. */
+	@Transactional
+	public Changed confirmName(Caller caller, UUID entityId, String lang, String form, UUID evidenceSpanId) {
+		requireReviewer(caller);
+		if (evidenceSpanId != null) {
+			requireReadableSpans(caller, List.of(evidenceSpanId));
+		}
+		NodeRef now = entity.confirmName(caller.projectId(), entityId, lang, form, caller.id(), evidenceSpanId);
+		return new Changed(now, impactsOf(caller.projectId(), List.of(now)));
+	}
+
+	/** 이 표기는 틀렸다고 거절한다. 검토자만 할 수 있다. */
+	@Transactional
+	public Changed rejectName(Caller caller, UUID entityId, String lang, String form) {
+		requireReviewer(caller);
+		NodeRef now = entity.rejectName(caller.projectId(), entityId, lang, form);
+		return new Changed(now, impactsOf(caller.projectId(), List.of(now)));
+	}
+
+	/**
+	 * 이 인물이 이 계정이라고 확인한다(accountId가 null이면 연결을 끊는다). 검토자만 할 수 있고,
+	 * 그 계정은 이 프로젝트의 구성원이어야 한다.
+	 */
+	@Transactional
+	public Changed linkAccount(Caller caller, UUID entityId, UUID accountId) {
+		requireReviewer(caller);
+		if (accountId != null && identity.roleOf(caller.projectId(), accountId).isEmpty()) {
+			throw new IllegalArgumentException("프로젝트 구성원이 아닌 계정이다");
+		}
+		NodeRef now = entity.linkAccount(caller.projectId(), entityId, accountId);
+		return new Changed(now, impactsOf(caller.projectId(), List.of(now)));
+	}
+
+	/**
+	 * 발언 내용을 정정한다(전사 오류 등). 이전 내용은 이력에 남고, 이 발언에 기댄 카드가 영향 목록으로 나온다.
+	 * 검토자만 할 수 있고, 읽을 수 있는 문서의 발언이어야 한다.
+	 */
+	@Transactional
+	public Changed reviseSpan(Caller caller, UUID spanId, long expectedRevision, String text) {
+		requireReviewer(caller);
+		requireReadableSpans(caller, List.of(spanId));
+		NodeRef span = document.reviseSpan(caller.projectId(), spanId, expectedRevision, text, caller.id());
+		return new Changed(span, impactsOf(caller.projectId(), List.of(span)));
+	}
+
+	/** 이 카드가 바뀌면 다시 확인해야 하는 카드들. 가까운 것부터 돌려준다. */
+	@Transactional(readOnly = true)
+	public List<Impact> listImpacts(UUID projectId, NodeRef changed) {
+		return impactsOf(projectId, List.of(changed));
+	}
+
+	// ---- 내부: 검사 ----
+
+	private void validate(UUID projectId, NodeKey owner, NodeView card, ReviewAction action,
+			ReviewStatus cardFinal, List<Edge> edges, Map<UUID, ReviewStatus> edgeFinal) {
+		List<Edge> confirming = edges.stream()
+				.filter(edge -> edge.status() != ReviewStatus.CONFIRMED
+						&& edgeFinal.get(edge.id()) == ReviewStatus.CONFIRMED)
+				.toList();
+
+		if (card != null && !confirming.isEmpty() && cardFinal != ReviewStatus.CONFIRMED) {
+			throw new IllegalStateException("카드가 확인되지 않았으면 딸린 줄도 확인할 수 없다");
+		}
+		boolean evidenceTouched = card != null && (card.status() != ReviewStatus.CONFIRMED
+				|| edges.stream().anyMatch(edge -> edge.rel() == RelType.EVIDENCED_BY
+						&& edgeFinal.get(edge.id()) != edge.status()));
+		if (evidenceTouched && cardFinal == ReviewStatus.CONFIRMED && NEEDS_EVIDENCE.contains(owner.type())) {
+			boolean evidenced = edges.stream().anyMatch(edge -> edge.rel() == RelType.EVIDENCED_BY
+					&& edgeFinal.get(edge.id()) == ReviewStatus.CONFIRMED);
+			if (!evidenced) {
+				throw new IllegalStateException("확인된 근거 줄이 하나도 없으면 카드를 확인 상태로 둘 수 없다");
+			}
+		}
+
+		List<NodeRef> ends = new ArrayList<>();
+		confirming.forEach(edge -> {
+			ends.add(edge.src());
+			ends.add(edge.dst());
+		});
+		Map<NodeKey, NodeView> alive = aliveCards(projectId, ends);
+		for (Edge edge : confirming) {
+			List<UUID> evidence = action.edgeEvidence().getOrDefault(edge.id(), edge.evidenceSpanIds());
+			if (evidence.isEmpty()) {
+				throw new IllegalArgumentException("근거 없이는 줄을 확인할 수 없다: " + edge.rel());
+			}
+			NodeRef far = ownerOf(edge).sameNode(edge.src()) ? edge.dst() : edge.src();
+			if (isCard(far.type()) && !alive.containsKey(far.key())) {
+				throw new IllegalStateException("건너편 카드가 없거나 거절·철회됐다: " + edge.rel() + " → " + far.type());
+			}
+			if (edge.rel() == RelType.SUPERSEDES || edge.rel() == RelType.WITHDRAWS) {
+				String srcKind = kindOf(alive, edge.src(), owner, action);
+				String dstKind = kindOf(alive, edge.dst(), owner, action);
+				boolean srcOk = edge.rel() == RelType.SUPERSEDES ? decides(srcKind) : "WITHDRAWAL".equals(srcKind);
+				if (!srcOk || !decides(dstKind)) {
+					throw new IllegalStateException(edge.rel() == RelType.SUPERSEDES
+							? "대체 줄은 확정·변경 사건끼리만 확인할 수 있다: " + srcKind + " → " + dstKind
+							: "철회 줄은 철회 사건에서 확정·변경 사건으로만 확인할 수 있다: " + srcKind + " → " + dstKind);
+				}
+			}
+		}
+	}
+
+	private void requireVisible(Caller caller, ItemRow item, Bundle bundle) {
+		if (!visibleTo(caller, identity.readableDocumentIds(caller), bundle)) {
+			throw new ReviewNotFoundException(item.id());
+		}
+	}
+
+	private static boolean decides(String kind) {
+		return "DECISION".equals(kind) || "CHANGE".equals(kind);
+	}
+
+	/** 사건의 유형. 이번 처리에서 유형을 정정하는 중이면 정정한 값을 쓴다. */
+	private static String kindOf(Map<NodeKey, NodeView> alive, NodeRef event, NodeKey owner, ReviewAction action) {
+		if (event.key().equals(owner) && action.corrections().containsKey("kind")) {
+			return String.valueOf(action.corrections().get("kind"));
+		}
+		NodeView view = alive.get(event.key());
+		return view == null ? null : view.states().get("kind");
+	}
+
+	/** 판단을 적용했을 때의 상태. 이미 그 상태면 그대로 돌려주고, 갈 수 없는 상태면 거절한다. */
+	private static ReviewStatus target(Verdict verdict, ReviewStatus current, String what) {
+		ReviewStatus next = switch (verdict) {
+			case CONFIRM -> ReviewStatus.CONFIRMED;
+			case HOLD -> ReviewStatus.HELD;
+			case REJECT -> ReviewStatus.REJECTED;
+			case RETRACT -> ReviewStatus.RETRACTED;
+		};
+		if (next == current) {
+			return current;
+		}
+		if (!current.canMoveTo(next)) {
+			throw new IllegalStateException(what + "의 상태를 바꿀 수 없다: " + current + " → " + next);
+		}
+		return next;
+	}
+
+	/** 따로 판단하지 않은 줄이 카드 판단을 따라갈 때의 판단. null이면 그 줄은 그대로 둔다. */
+	private static Verdict followCard(Verdict card, ReviewStatus edge) {
+		if (card == null) {
+			return null;
+		}
+		boolean pending = edge == ReviewStatus.CANDIDATE || edge == ReviewStatus.HELD;
+		return switch (card) {
+			case CONFIRM -> pending ? Verdict.CONFIRM : null;
+			case HOLD -> edge == ReviewStatus.CANDIDATE ? Verdict.HOLD : null;
+			case REJECT, RETRACT -> pending ? Verdict.REJECT : Verdict.RETRACT;
+		};
+	}
+
+	private void requireReviewer(Caller caller) {
+		Objects.requireNonNull(caller, "caller");
+		if (caller.kind() != Caller.Kind.USER) {
+			throw new NotAllowedException("확인·정정은 사람만 할 수 있다: " + caller.kind());
+		}
+		if (!identity.canReview(caller)) {
+			throw new NotAllowedException("확인·정정은 프로젝트의 OWNER나 REVIEWER만 할 수 있다");
+		}
+	}
+
+	// ---- 내부: 묶음 ----
+
+	/** 줄이 딸린 카드. */
+	private static NodeRef ownerOf(Edge edge) {
+		return OWNED_BY_DST.contains(edge.rel()) ? edge.dst() : edge.src();
+	}
+
+	private Bundle bundle(ItemRow item) {
+		NodeRef owner = new NodeRef(item.owner().type(), item.owner().id(), 1);
+		NodeView card = isCard(owner.type())
+				? cards(item.projectId(), List.of(owner)).stream().findFirst().orElse(null)
+				: null;
+		List<Edge> edges = new ArrayList<>();
+		edges.addAll(graph.edgesOf(item.projectId(), owner, Direction.IMPACT, OWNED_BY_DST, ACTIVE));
+		edges.addAll(graph.edgesOf(item.projectId(), owner, Direction.BASIS, OWNED_BY_SRC, ACTIVE));
+		return new Bundle(card, edges);
+	}
+
+	private ReviewItem view(ItemRow item) {
+		Bundle bundle = bundle(item);
+		NodeRef owner = bundle.card() != null ? bundle.card().ref()
+				: new NodeRef(item.owner().type(), item.owner().id(), 1);
+		return new ReviewItem(item.id(), item.version(), item.state(), owner, bundle.card(), bundle.edges());
+	}
+
+	/**
+	 * 이 카드의 검토 묶음을 만들거나 버전을 올리고, 확인할 것이 남았는지에 따라 상태를 맞춘다.
+	 *
+	 * @return 검토 묶음의 id
+	 */
+	private UUID touch(UUID projectId, NodeKey owner) {
+		UUID id = jdbc.sql("""
+				insert into review_item (id, project_id, owner_type, owner_id, created_at)
+				values (:id, :projectId, :ownerType, :ownerId, clock_timestamp())
+				on conflict (project_id, owner_type, owner_id)
+				    do update set version = review_item.version + 1, updated_at = now()
+				returning id
+				""")
+				.param("id", UUID.randomUUID())
+				.param("projectId", projectId)
+				.param("ownerType", owner.type().name())
+				.param("ownerId", owner.id())
+				.query((rs, n) -> rs.getObject("id", UUID.class))
+				.single();
+		Bundle bundle = bundle(new ItemRow(id, projectId, owner, ReviewItem.State.OPEN, 1));
+		boolean pending = (bundle.card() != null && isPending(bundle.card().status()))
+				|| bundle.edges().stream().anyMatch(edge -> isPending(edge.status()));
+		jdbc.sql("update review_item set state = :state where id = :id")
+				.param("state", (pending ? ReviewItem.State.OPEN : ReviewItem.State.DONE).name())
+				.param("id", id)
+				.update();
+		return id;
+	}
+
+	private static boolean isPending(ReviewStatus status) {
+		return status == ReviewStatus.CANDIDATE || status == ReviewStatus.HELD;
+	}
+
+	private ItemRow findItem(UUID projectId, UUID reviewId, boolean forUpdate) {
+		Objects.requireNonNull(reviewId, "reviewId");
+		return jdbc.sql("select id, project_id, owner_type, owner_id, state, version from review_item"
+				+ " where id = :id and project_id = :projectId" + (forUpdate ? " for update" : ""))
+				.param("id", reviewId)
+				.param("projectId", projectId)
+				.query(ReviewImpact::mapItem)
+				.optional()
+				.orElseThrow(() -> new ReviewNotFoundException(reviewId));
+	}
+
+	private boolean alreadyApplied(UUID projectId, String idempotencyKey) {
+		return jdbc.sql("select count(*) from review_action where project_id = :projectId and idempotency_key = :key")
+				.param("projectId", projectId)
+				.param("key", idempotencyKey)
+				.query(Long.class)
+				.single() > 0;
+	}
+
+	// ---- 내부: 카드와 영향 ----
+
+	/** 내용을 읽을 수 있는 카드 종류인가(결정·업무 관리의 다섯 종류와 인물·기관). */
+	private static boolean isCard(NodeType type) {
+		return DecisionTask.owns(type) || type == NodeType.ENTITY;
+	}
+
+	/** 카드 내용을 담당 부서에서 읽어 온다. */
+	private List<NodeView> cards(UUID projectId, Collection<NodeRef> refs) {
+		List<NodeView> views = new ArrayList<>(decision.getNodes(projectId, refs));
+		views.addAll(entity.getNodes(projectId, refs));
+		return views;
+	}
+
+	/** 이 프로젝트에 있고 거절·철회되지 않은 카드. 내용을 읽을 수 있는 종류만 담긴다. */
+	private Map<NodeKey, NodeView> aliveCards(UUID projectId, Collection<NodeRef> refs) {
+		Map<NodeKey, NodeView> alive = new HashMap<>();
+		if (refs.isEmpty()) {
+			return alive;
+		}
+		for (NodeView view : cards(projectId, refs)) {
+			if (ACTIVE.contains(view.status())) {
+				alive.put(view.ref().key(), view);
+			}
+		}
+		return alive;
+	}
+
+	private static NodeRef current(Map<NodeKey, NodeView> alive, Map<UUID, Span> spans, NodeRef ref) {
+		if (ref.type() == NodeType.SPAN) {
+			return spans.get(ref.id()).ref();
+		}
+		NodeView view = alive.get(ref.key());
+		return view == null ? ref : view.ref();
+	}
+
+	/**
+	 * 근거로 대는 발언이 자료실에 실제로 있고, 대는 사람이 읽을 수 있는 문서의 것인지 확인한다.
+	 * AI 작업이면 작업을 요청한 사용자가 읽을 수 있어야 한다.
+	 */
+	private Map<UUID, Span> requireReadableSpans(Caller caller, Collection<UUID> spanIds) {
+		Map<UUID, Span> found = new HashMap<>();
+		if (spanIds.isEmpty()) {
+			return found;
+		}
+		document.getSpans(caller.projectId(), spanIds).forEach(span -> found.put(span.ref().id(), span));
+		Set<UUID> readable = identity.readableDocumentIds(caller);
+		for (UUID id : spanIds) {
+			Span span = found.get(id);
+			if (span == null) {
+				throw new IllegalArgumentException("자료실에 없는 발언을 근거로 댔다: " + id);
+			}
+			if (!readable.contains(span.documentId())) {
+				throw new NotAllowedException("읽을 수 없는 문서의 발언을 근거로 댈 수 없다: " + id);
+			}
+		}
+		return found;
+	}
+
+	/** 묶음의 줄에 적힌 근거 발언이 없거나, 그중 하나라도 읽을 수 있으면 이 사람에게 보이는 묶음이다. */
+	private boolean visibleTo(Caller caller, Set<UUID> readableDocuments, Bundle bundle) {
+		Set<UUID> spanIds = new HashSet<>();
+		bundle.edges().forEach(edge -> spanIds.addAll(edge.evidenceSpanIds()));
+		if (spanIds.isEmpty()) {
+			return true;
+		}
+		return document.getSpans(caller.projectId(), spanIds).stream()
+				.anyMatch(span -> readableDocuments.contains(span.documentId()));
+	}
+
+	private NodeView requireCard(UUID projectId, NodeRef ref) {
+		return cards(projectId, List.of(ref)).stream().findFirst()
+				.orElseThrow(() -> new NodeNotFoundException(ref.type(), ref.id()));
+	}
+
+	private List<Impact> impactsOf(UUID projectId, Collection<NodeRef> changed) {
+		Map<NodeKey, Impact> nearest = new LinkedHashMap<>();
+		Set<NodeKey> sources = new LinkedHashSet<>();
+		changed.forEach(ref -> sources.add(ref.key()));
+		for (NodeRef ref : changed) {
+			Subgraph reached = graph.traverse(projectId, ref, Direction.IMPACT, null, DecisionGraph.MAX_DEPTH, ACTIVE);
+			reached.depths().forEach((key, distance) -> {
+				if (distance == 0 || sources.contains(key)) {
+					return;
+				}
+				Impact known = nearest.get(key);
+				if (known == null || distance < known.distance()) {
+					nearest.put(key, new Impact(ref.key(), key, distance));
+				}
+			});
+		}
+		return nearest.values().stream()
+				.sorted((a, b) -> Integer.compare(a.distance(), b.distance()))
+				.toList();
+	}
+
+	private static NodeType endType(String key, NodeRef ref, Map<String, NodeType> draftTypes) {
+		if (ref != null) {
+			return ref.type();
+		}
+		NodeType type = draftTypes.get(key);
+		if (type == null) {
+			throw new IllegalArgumentException("줄이 가리키는 카드 후보가 없다: " + key);
+		}
+		return type;
+	}
+
+	private static String summarize(ReviewAction action, NodeView card, ReviewStatus cardFinal, List<Edge> edges,
+			Map<UUID, ReviewStatus> edgeFinal) {
+		StringBuilder summary = new StringBuilder();
+		if (card != null) {
+			summary.append("card ").append(card.status()).append("->").append(cardFinal);
+		}
+		if (!action.corrections().isEmpty()) {
+			summary.append(" corrected ").append(action.corrections().keySet());
+		}
+		for (Edge edge : edges) {
+			ReviewStatus next = edgeFinal.get(edge.id());
+			if (next != edge.status()) {
+				summary.append(" edge ").append(edge.id()).append(' ').append(edge.status()).append("->").append(next);
+			}
+		}
+		return summary.toString().strip();
+	}
+
+	private static Set<RelType> ownedBySrc() {
+		Set<RelType> rels = EnumSet.allOf(RelType.class);
+		rels.removeAll(OWNED_BY_DST);
+		rels.removeIf(RelType::isSystemRecorded);
+		return rels;
+	}
+
+	private static ItemRow mapItem(ResultSet rs, int rowNum) throws SQLException {
+		return new ItemRow(rs.getObject("id", UUID.class), rs.getObject("project_id", UUID.class),
+				new NodeKey(NodeType.valueOf(rs.getString("owner_type")), rs.getObject("owner_id", UUID.class)),
+				ReviewItem.State.valueOf(rs.getString("state")), rs.getLong("version"));
+	}
+}
