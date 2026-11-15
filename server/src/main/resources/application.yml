@@ -1,0 +1,27 @@
+server:
+  port: 8090
+  # 아직 로그인이 없으므로 이 컴퓨터에서만 접속할 수 있게 한다
+  address: 127.0.0.1
+
+spring:
+  application:
+    name: server
+  datasource:
+    url: jdbc:postgresql://localhost:5434/contexa
+    username: contexa
+    password: contexa
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+
+contexa:
+  # AI 인턴(Python 일꾼)이 뒷문(/internal)으로 들어올 때 내는 토큰.
+  # 배포 환경에서는 CONTEXA_WORKER_TOKEN 환경 변수로 긴 무작위 값을 넣는다
+  worker:
+    token: ${CONTEXA_WORKER_TOKEN:dev-worker-token}
+  # 개발용 예시 데이터 주소(POST /dev/seed)를 켠다. 배포 환경에서는 false로 둔다
+  dev-seed:
+    enabled: true
