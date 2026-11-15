@@ -1,0 +1,19 @@
+[project]
+name = "contexa-ai"
+version = "0.1.0"
+description = "Contexa의 AI 인턴: 문서를 발언으로 자르고, 카드·줄 후보를 뽑아 서버에 제출한다"
+requires-python = ">=3.11"
+dependencies = [
+    # 모델을 부르는 데만 쓴다. 서버와의 통신은 표준 라이브러리로 한다.
+    "anthropic",
+]
+
+[project.scripts]
+contexa-worker = "contexa_ai.worker:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["contexa_ai"]
