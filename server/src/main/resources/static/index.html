@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contexa 안내 데스크 확인</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --line:#dde1e7; --text:#1c2330; --dim:#667085;
+          --ok:#12715b; --okbg:#e1f5ee; --ai:#8a5a00; --aibg:#fdf1d6; --warn:#a3261e; --warnbg:#fde7e4; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --card:#1d2229; --line:#323945; --text:#e6e9ee; --dim:#98a2b3;
+            --ok:#6fd6b8; --okbg:#143a31; --ai:#f1c56a; --aibg:#3d3013; --warn:#ff9d94; --warnbg:#45201c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 16px 64px; background:var(--bg); color:var(--text);
+         font:15px/1.55 system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif; }
+  main { max-width:880px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:28px 0 10px; color:var(--dim); font-weight:600; }
+  p.note { color:var(--dim); margin:0 0 16px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; }
+  button { font:inherit; padding:8px 12px; border-radius:8px; border:1px solid var(--line);
+           background:var(--card); color:var(--text); cursor:pointer; }
+  button.primary { background:var(--text); color:var(--bg); border-color:var(--text); }
+  button:disabled { opacity:.45; cursor:default; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin:8px 0; }
+  .row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+  .label { font-weight:600; }
+  .tag { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); color:var(--dim); }
+  .tag.ok { color:var(--ok); background:var(--okbg); border-color:transparent; }
+  .tag.ai { color:var(--ai); background:var(--aibg); border-color:transparent; }
+  .tag.warn { color:var(--warn); background:var(--warnbg); border-color:transparent; }
+  .meta { color:var(--dim); font-size:13px; margin-top:4px; }
+  .rel { font-size:14px; padding:6px 0; border-bottom:1px solid var(--line); }
+  .rel:last-child { border-bottom:0; }
+  .arrow { color:var(--dim); }
+  pre { overflow-x:auto; font-size:12px; background:var(--card); border:1px solid var(--line);
+        border-radius:10px; padding:12px; }
+  #status { color:var(--dim); font-size:13px; margin-top:10px; min-height:1.4em; word-break:break-all; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Contexa 안내 데스크 확인</h1>
+  <p class="note">개발용 페이지입니다. 예시 데이터를 넣고, 안내 데스크가 돌려주는 답변서를 그대로 보여줍니다.</p>
+
+  <div class="bar">
+    <button class="primary" id="seed">예시 데이터 넣기</button>
+    <button data-q="state" disabled>지금 어디까지 결정됐어?</button>
+    <button data-q="print" disabled>인쇄 진행해도 돼?</button>
+    <button data-q="impact" disabled>22번 발언을 고치면?</button>
+    <button data-q="format" disabled>개최 방식은 어떻게 바뀌었어?</button>
+    <button data-q="date" disabled>행사 날짜는 어떻게 바뀌었어?</button>
+    <button data-q="tasks" disabled>누가 무엇을 해야 해?</button>
+    <button data-q="who" disabled>'아흐마드'가 누구야?</button>
+    <button data-q="reviews" disabled>검토함</button>
+  </div>
+  <div id="status"></div>
+
+  <div class="bar" style="margin-top:14px">
+    <input id="question" placeholder="질문을 입력하세요. 예: 인쇄 진행해도 돼?" disabled
+           style="flex:1; min-width:220px; font:inherit; padding:8px 10px; border-radius:8px;
+                  border:1px solid var(--line); background:var(--card); color:var(--text)">
+    <button id="ask" disabled>질문하기</button>
+  </div>
+  <p class="note" style="margin-top:6px">질문에 답하려면 AI 인턴(ai/ 폴더의 일꾼)이 실행 중이어야 합니다.</p>
+
+  <div id="out"></div>
+</main>
+
+<script>
+const TYPE = { TOPIC:'안건', DECISION_ITEM:'결정 항목', DECISION_EVENT:'결정 사건', CONDITION:'조건',
+               TASK:'할 일', ENTITY:'인물·기관', SPAN:'발언', ARTIFACT:'답변' };
+const REL = { HAS_ITEM:'항목을 가진다', HAS_EVENT:'사건을 가진다', SUPERSEDES:'대체한다', WITHDRAWS:'철회한다',
+              REQUIRES:'필요로 한다', SATISFIED_BY:'충족됐다', DERIVED_FROM:'여기서 나왔다', ASSIGNED_TO:'맡는다',
+              EVIDENCED_BY:'근거다', SPOKEN_BY:'말했다', MENTIONS:'언급한다', USES:'참고했다',
+              CONFLICTS_WITH:'충돌한다' };
+const STATE = { UNDECIDED:'미확정', DECIDED:'결정됨', CONTESTED:'경합', WITHDRAWN:'유효한 결정 없음',
+                PROPOSAL:'제안', DISCUSSION:'논의', DEFERRAL:'보류', DECISION:'확정', CHANGE:'변경', WITHDRAWAL:'철회',
+                ACTIVE:'유효', SUPERSEDED:'대체됨', UNMET:'미충족', MET:'충족',
+                PLANNED:'예정', IN_PROGRESS:'진행 중', ON_HOLD:'보류', DONE:'완료', CANCELLED:'취소',
+                PENDING:'수락 대기', ACCEPTED:'수락', DECLINED:'거절' };
+const STATE_KEYS = ['decisionState', 'kind', 'standing', 'state', 'workStatus', 'acceptance'];
+STATE.PERSON = '인물'; STATE.ORGANIZATION = '기관';
+const OPEN = { AMBIGUOUS_NAME:'같은 이름에 해당하는 대상이 여럿', HELD_NODE:'보류된 카드', HELD_EDGE:'보류된 줄', CONTESTED_DECISION:'결정이 겹침',
+               UNMET_CONDITION:'미충족 조건' };
+
+const out = document.getElementById('out');
+const statusLine = document.getElementById('status');
+let seeded = null;
+
+/** 로그인 토큰을 붙여서 부른다. */
+function api(url, options) {
+  const opts = options || {};
+  opts.headers = Object.assign({ Authorization: 'Bearer ' + seeded.token }, opts.headers || {});
+  return fetch(url, opts);
+}
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+function reviewTag(status) {
+  return status === 'CONFIRMED' ? el('span', 'tag ok', '확인됨') : el('span', 'tag ai', 'AI 후보');
+}
+function setSeeded(value) {
+  seeded = value;
+  document.querySelectorAll('button[data-q], #ask, #question').forEach(b => b.disabled = !seeded);
+  statusLine.textContent = seeded ? '프로젝트 ' + seeded.projectId : '';
+}
+
+document.getElementById('seed').onclick = async () => {
+  const res = await fetch('/dev/seed', { method: 'POST' });
+  if (!res.ok) { statusLine.textContent = '예시 데이터를 넣지 못했습니다 (' + res.status + ')'; return; }
+  setSeeded(await res.json());
+  try { localStorage.setItem('contexa.seed', JSON.stringify(seeded)); } catch (e) {}
+  ask('state');
+};
+
+function urlFor(q) {
+  const base = '/api/v1/projects/' + seeded.projectId + '/context';
+  const n = seeded.nodes;
+  if (q === 'state') return base + '/state';
+  if (q === 'print') return base + '/trace?type=TASK&id=' + n.print.id + '&direction=BASIS&depth=3';
+  if (q === 'impact') return base + '/trace?type=SPAN&id=' + n.span22.id + '&direction=IMPACT&depth=4';
+  if (q === 'tasks') return base + '/tasks';
+  if (q === 'who') return base + '/entities?surface=' + encodeURIComponent('아흐마드');
+  if (q === 'format') return base + '/history/' + n.format.id;
+  return base + '/history/' + n.date.id;
+}
+
+async function ask(q) {
+  if (q === 'reviews') return showReviews();
+  const url = urlFor(q);
+  const res = await api(url);
+  const body = await res.json();
+  out.replaceChildren();
+  out.append(el('h2', null, 'GET ' + url));
+  if (!res.ok) { out.append(el('div', 'card', body.message || '요청이 실패했습니다')); return; }
+  render(body);
+}
+document.querySelectorAll('button[data-q]').forEach(b => b.onclick = () => ask(b.dataset.q));
+
+const VERDICT = { CONFIRM:'확인', HOLD:'보류', REJECT:'거절' };
+
+async function showReviews(message) {
+  const url = '/api/v1/projects/' + seeded.projectId + '/reviews';
+  const res = await api(url);
+  if (!res.ok) { out.replaceChildren(el('div', 'card', (await res.json()).message)); return; }
+  const items = await res.json();
+  out.replaceChildren();
+  out.append(el('h2', null, 'GET ' + url));
+  if (message) out.append(el('div', 'card', message));
+  out.append(el('h2', null, '확인할 것이 남은 묶음 ' + items.length + '개'));
+  const labels = {};
+  items.forEach(i => { if (i.card) labels[i.owner.id] = i.card.label; });
+  const name = ref => labels[ref.id] || (TYPE[ref.type] + ' ' + ref.id.slice(0, 8));
+  items.forEach(item => {
+    const card = el('div', 'card');
+    const row = el('div', 'row');
+    row.append(el('span', 'label', item.card ? item.card.label : name(item.owner)),
+               el('span', 'tag', TYPE[item.owner.type]));
+    if (item.card) row.append(statusTag(item.card.status));
+    card.append(row);
+    item.edges.forEach(e => {
+      const line = el('div', 'rel row');
+      line.append(el('span', null, name(e.src)), el('span', 'arrow', '─ ' + REL[e.rel] + ' →'),
+                  el('span', null, name(e.dst)), statusTag(e.status));
+      card.append(line);
+    });
+    const actions = el('div', 'bar');
+    actions.style.marginTop = '10px';
+    Object.keys(VERDICT).forEach(verdict => {
+      const button = el('button', verdict === 'CONFIRM' ? 'primary' : null, VERDICT[verdict]);
+      button.onclick = () => act(item, verdict);
+      actions.append(button);
+    });
+    card.append(actions);
+    out.append(card);
+  });
+  if (!items.length) out.append(el('div', 'card', '확인할 것이 없습니다.'));
+}
+
+function statusTag(status) {
+  if (status === 'CONFIRMED') return el('span', 'tag ok', '확인됨');
+  if (status === 'HELD') return el('span', 'tag warn', '보류');
+  return el('span', 'tag ai', 'AI 후보');
+}
+
+/** 카드가 있는 묶음은 카드에 판단을 내리고, 발언 묶음처럼 카드가 없으면 줄마다 같은 판단을 내린다. */
+function actionFor(item, verdict) {
+  if (item.card) return { card: verdict };
+  const edges = {};
+  item.edges.forEach(e => edges[e.id] = verdict);
+  return { edges: edges };
+}
+
+async function act(item, verdict) {
+  const res = await api('/api/v1/projects/' + seeded.projectId + '/reviews/' + item.id + '/actions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign(actionFor(item, verdict), { expectedVersion: item.version,
+                           idempotencyKey: item.id + ':' + item.version + ':' + verdict }))
+  });
+  const body = await res.json();
+  if (!res.ok) return showReviews('처리하지 못했습니다: ' + body.message);
+  const label = item.card ? item.card.label : '묶음';
+  showReviews(label + ' → ' + VERDICT[verdict] + '. 영향받는 카드 ' + body.impacts.length + '개');
+}
+
+document.getElementById('ask').onclick = askQuestion;
+document.getElementById('question').onkeydown = e => { if (e.key === 'Enter') askQuestion(); };
+
+/** 질문을 보내고, 답변이 만들어질 때까지 2초마다 다시 열어 본다(최대 3분). */
+async function askQuestion() {
+  const question = document.getElementById('question').value.trim();
+  if (!question) return;
+  const base = '/api/v1/projects/' + seeded.projectId + '/generations';
+  const res = await api(base, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ question: question }) });
+  const body = await res.json();
+  out.replaceChildren(el('h2', null, 'POST ' + base));
+  if (!res.ok) { out.append(el('div', 'card', body.message || '요청이 실패했습니다')); return; }
+  const waiting = el('div', 'card', 'AI 인턴이 답을 쓰는 중입니다…');
+  out.append(waiting);
+  for (let i = 0; i < 90; i++) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    const view = await (await api(base + '/' + body.artifactId)).json();
+    if (view.status === 'PENDING') continue;
+    return renderArtifact(view);
+  }
+  waiting.textContent = '아직 답이 없습니다. AI 인턴이 실행 중인지 확인하세요.';
+}
+
+function renderArtifact(view) {
+  out.replaceChildren(el('h2', null, view.question));
+  if (view.status === 'FAILED') { out.append(el('div', 'card', '답을 쓰지 못했습니다: ' + (view.failure || ''))); return; }
+  const card = el('div', 'card');
+  if (view.stale.length) {
+    const row = el('div', 'row');
+    row.append(el('span', 'tag warn', '다시 확인 필요'),
+               el('span', 'meta', '이 답이 참고한 카드·발언·줄 ' + view.stale.length + '개가 그사이 바뀌었습니다.'));
+    card.append(row);
+  }
+  const text = el('div', null, view.content);
+  text.style.whiteSpace = 'pre-wrap';
+  card.append(text);
+  out.append(card);
+  out.append(el('h2', null, '근거 ' + view.citations.length + '개'));
+  const cites = el('div', 'card');
+  view.citations.forEach((c, i) => cites.append(el('div', 'rel',
+      '[' + (i + 1) + '] ' + (c.text === null ? '(지금은 읽을 수 없는 발언)'
+                                             : (c.speaker ? c.speaker + ': ' : '') + c.text))));
+  if (!view.citations.length) cites.append(el('div', 'meta', '인용한 발언이 없습니다.'));
+  out.append(cites);
+}
+
+function render(packet) {
+  const labels = {};
+  packet.facts.forEach(f => labels[f.node.id] = f.label);
+  (packet.sources || []).forEach(src => labels[src.span.id] = src.seq + '번 발언 "' + src.text + '"');
+  const name = ref => labels[ref.id] || (TYPE[ref.type] + ' ' + ref.id.slice(0, 8));
+
+  out.append(el('h2', null, '사실 ' + packet.facts.length + '개'));
+  packet.facts.forEach(f => {
+    const card = el('div', 'card');
+    const row = el('div', 'row');
+    row.append(el('span', 'label', f.label), el('span', 'tag', TYPE[f.node.type]), reviewTag(f.status));
+    STATE_KEYS.forEach(key => {
+      const value = f.states[key];
+      if (!value) return;
+      const warn = value === 'UNMET' || value === 'CONTESTED' || value === 'SUPERSEDED' || value === 'WITHDRAWN';
+      row.append(el('span', warn ? 'tag warn' : 'tag', STATE[value] || value));
+    });
+    card.append(row);
+    const evidence = f.evidence.map(e => name(e.span) + (e.status === 'CONFIRMED' ? '' : ' (AI 후보)'));
+    const when = f.states.occurredAt ? new Date(f.states.occurredAt).toLocaleString('ko-KR') + ' · ' : '';
+    card.append(el('div', 'meta', when + (evidence.length ? '근거: ' + evidence.join(', ') : '근거가 연결되지 않음')));
+    out.append(card);
+  });
+
+  out.append(el('h2', null, '관계 ' + packet.relations.length + '개'));
+  const rels = el('div', 'card');
+  packet.relations.forEach(r => {
+    const line = el('div', 'rel row');
+    line.append(el('span', null, name(r.src)), el('span', 'arrow', '─ ' + REL[r.rel] + ' →'),
+                el('span', null, name(r.dst)), reviewTag(r.status));
+    rels.append(line);
+  });
+  if (!packet.relations.length) rels.append(el('div', 'meta', '없음'));
+  out.append(rels);
+
+  out.append(el('h2', null, '아직 정리되지 않은 것 ' + packet.open.length + '개'));
+  const open = el('div', 'card');
+  packet.open.forEach(o => {
+    const line = el('div', 'rel row');
+    line.append(el('span', 'tag warn', OPEN[o.kind] || o.kind),
+                el('span', null, o.node ? name(o.node) : '줄 ' + o.edgeId.slice(0, 8)));
+    open.append(line);
+  });
+  if (!packet.open.length) open.append(el('div', 'meta', '없음'));
+  out.append(open);
+
+  const raw = el('details');
+  raw.append(el('summary', null, '답변서 원본 (JSON)'), el('pre', null, JSON.stringify(packet, null, 2)));
+  out.append(el('h2', null, '원본'), raw);
+}
+
+try {
+  const saved = localStorage.getItem('contexa.seed');
+  const parsed = saved ? JSON.parse(saved) : null;
+  if (parsed && parsed.token) setSeeded(parsed);
+} catch (e) {}
+</script>
+</body>
+</html>
