@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   GENERIC_ERROR_MESSAGE,
   NETWORK_ERROR_MESSAGE,
+  STALE_MESSAGE,
   handleServerError,
 } from './handle-server-error'
 
@@ -40,6 +41,17 @@ describe('handleServerError', () => {
     )
 
     expect(toastError).toHaveBeenCalledWith('이미 가입된 이메일이다')
+  })
+
+  it('explains a version conflict instead of showing ids and versions', () => {
+    handleServerError(
+      axiosErrorWith(409, {
+        error: 'STALE',
+        message: '검토 항목 1234이 이미 바뀌었다: 기대한 버전 1, 현재 버전 2',
+      })
+    )
+
+    expect(toastError).toHaveBeenCalledWith(STALE_MESSAGE)
   })
 
   it('falls back to the generic message when the body has no message', () => {

@@ -5,6 +5,7 @@ import type {
   NodeRef,
   NodeType,
   ReviewItem,
+  ReviewPage,
   ReviewResult,
   ReviewState,
   TaskStatus,
@@ -21,12 +22,22 @@ import type {
 
 const enc = encodeURIComponent
 
-/** 검토함. state를 생략하면 server 기본값 OPEN(확인할 것이 남은 묶음). */
+export interface ReviewFilter {
+  /** 생략하면 server 기본값 OPEN(확인할 것이 남은 묶음). */
+  state?: ReviewState
+  ownerType?: NodeType
+  /** 한 쪽에 훑을 묶음 수. server 기본 50, 최대 200. */
+  limit?: number
+  /** 앞 쪽의 next. */
+  after?: string
+}
+
+/** 검토함 한 쪽. OPEN은 오래된 묶음부터, DONE은 최근에 바뀐 묶음부터 온다. */
 export async function listReviews(
   projectId: Uuid,
-  filter: { state?: ReviewState; ownerType?: NodeType } = {}
-): Promise<ReviewItem[]> {
-  const { data } = await http.get<ReviewItem[]>(
+  filter: ReviewFilter = {}
+): Promise<ReviewPage> {
+  const { data } = await http.get<ReviewPage>(
     projectPath(projectId, '/reviews'),
     { params: filter }
   )
