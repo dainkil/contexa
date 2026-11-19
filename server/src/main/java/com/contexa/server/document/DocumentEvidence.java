@@ -77,12 +77,13 @@ public class DocumentEvidence {
 	/**
 	 * 이미 있는 문서의 새 판을 올린다. 이전 판은 덮어쓰지 않는다.
 	 * 내용이 이전 판 중 하나와 똑같으면 새 판을 만들지 않고 거절한다.
+	 * 읽을 수 없는 문서(남의 개인 메모)는 없는 문서와 똑같이 거절한다.
 	 */
 	@Transactional
 	public SourceVersionRef addVersion(Caller caller, UUID documentId, String content) {
 		requireMember(caller);
 		requireContent(content);
-		requireDocument(caller.projectId(), documentId);
+		requireReadable(caller, documentId);
 		boolean duplicate = jdbc.sql("""
 				select count(*) from source_version where document_id = :documentId and content_hash = :hash
 				""")
@@ -170,6 +171,27 @@ public class DocumentEvidence {
 			refs.add(new NodeRef(NodeType.SPAN, id, 1));
 		}
 		return refs;
+	}
+
+	/** 판마다 그 판이 속한 문서. 이 프로젝트에 없는 판은 결과에서 빠진다. */
+	@Transactional(readOnly = true)
+	public Map<UUID, UUID> documentsOfVersions(UUID projectId, Collection<UUID> sourceVersionIds) {
+		Objects.requireNonNull(projectId, "projectId");
+		Map<UUID, UUID> documents = new HashMap<>();
+		if (sourceVersionIds == null || sourceVersionIds.isEmpty()) {
+			return documents;
+		}
+		record Row(UUID versionId, UUID documentId) {
+		}
+		jdbc.sql("""
+				select v.id, v.document_id from source_version v join document d on d.id = v.document_id
+				 where d.project_id = :projectId and v.id in (:ids)
+				""")
+				.param("projectId", projectId).param("ids", sourceVersionIds)
+				.query((rs, n) -> new Row(rs.getObject("id", UUID.class), rs.getObject("document_id", UUID.class)))
+				.list()
+				.forEach(row -> documents.put(row.versionId(), row.documentId()));
+		return documents;
 	}
 
 	/** 이 프로젝트의 발언을 읽는다. 없는 발언은 결과에서 빠진다. 권한 검사는 호출한 쪽이 한다. */
@@ -263,10 +285,10 @@ public class DocumentEvidence {
 		}
 	}
 
-	private void requireDocument(UUID projectId, UUID documentId) {
+	private void requireReadable(Caller caller, UUID documentId) {
 		boolean exists = jdbc.sql("select count(*) from document where id = :id and project_id = :projectId")
-				.param("id", documentId).param("projectId", projectId).query(Long.class).single() > 0;
-		if (!exists) {
+				.param("id", documentId).param("projectId", caller.projectId()).query(Long.class).single() > 0;
+		if (!exists || !identity.canRead(caller, documentId)) {
 			throw new DocumentNotFoundException("문서", documentId);
 		}
 	}
