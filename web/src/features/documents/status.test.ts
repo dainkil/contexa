@@ -4,6 +4,7 @@ import {
   STALE_QUEUE_MS,
   languageLabel,
   progressOf,
+  revisedMessage,
   waitingTooLong,
 } from './status'
 
@@ -111,5 +112,20 @@ describe('languageLabel', () => {
     expect(languageLabel('ar')).toBe('아랍어')
     expect(languageLabel(null)).toBe('여러 언어')
     expect(languageLabel('fr')).toBe('fr')
+  })
+})
+
+describe('revisedMessage', () => {
+  const impact = (id: string) => ({
+    changed: { type: 'SPAN' as const, id: 's1' },
+    affected: { type: 'TASK' as const, id },
+    distance: 1,
+  })
+
+  it('counts each affected card once', () => {
+    expect(revisedMessage([impact('t1'), impact('t1'), impact('t2')])).toBe(
+      '발언을 정정했습니다. 이 발언에 기댄 카드 2개는 다시 확인이 필요합니다.'
+    )
+    expect(revisedMessage([])).toBe('발언을 정정했습니다.')
   })
 })

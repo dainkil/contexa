@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
+import { Pencil } from 'lucide-react'
 import type { Span } from '@/api/types'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 
 /**
  * 한 판의 발언 목록. highlightId인 발언은 근거 하이라이트(노랑)로 칠하고 그 자리로 스크롤한다.
@@ -10,9 +12,12 @@ import { Badge } from '@/components/ui/badge'
 export function SpanList({
   spans,
   highlightId,
+  onRevise,
 }: {
   spans: Span[]
   highlightId?: string
+  /** 있으면 발언마다 정정 버튼을 둔다(소유자·검토자만). */
+  onRevise?: (span: Span) => void
 }) {
   const highlighted = useRef<HTMLLIElement>(null)
 
@@ -33,7 +38,7 @@ export function SpanList({
             aria-current={isHighlighted ? 'true' : undefined}
             data-highlighted={isHighlighted ? '' : undefined}
             className={cn(
-              'flex scroll-mt-24 gap-3 rounded-md px-2 py-2',
+              'group flex scroll-mt-24 gap-3 rounded-md px-2 py-2',
               isHighlighted &&
                 'bg-evidence text-evidence-foreground ring-2 ring-evidence-foreground/20'
             )}
@@ -62,6 +67,19 @@ export function SpanList({
                 {span.text}
               </p>
             </div>
+            {onRevise && (
+              <Button
+                variant='ghost'
+                size='icon'
+                aria-label={`${span.seq}번 발언 정정`}
+                title='발언 정정'
+                // 넓은 화면에서는 줄에 마우스를 올리거나 키보드로 갔을 때만 보인다
+                className='size-8 shrink-0 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
+                onClick={() => onRevise(span)}
+              >
+                <Pencil />
+              </Button>
+            )}
           </li>
         )
       })}

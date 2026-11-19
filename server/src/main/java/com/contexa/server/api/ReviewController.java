@@ -23,6 +23,7 @@ import com.contexa.server.review.ReviewAction;
 import com.contexa.server.review.ReviewFilter;
 import com.contexa.server.review.ReviewImpact;
 import com.contexa.server.review.ReviewItem;
+import com.contexa.server.review.ReviewPage;
 import com.contexa.server.review.ReviewResult;
 import com.contexa.server.review.Verdict;
 
@@ -42,12 +43,17 @@ public class ReviewController {
 		this.identity = identity;
 	}
 
-	/** 검토함. state를 생략하면 확인할 것이 남은 묶음만 나온다. */
+	/**
+	 * 검토함 한 쪽. state를 생략하면 확인할 것이 남은 묶음만 나온다.
+	 * 다음 쪽은 응답의 next를 after로 보내 부른다.
+	 */
 	@GetMapping("/reviews")
-	public List<ReviewItem> reviews(Caller caller,
+	public ReviewPage reviews(Caller caller,
 			@RequestParam(defaultValue = "OPEN") ReviewItem.State state,
-			@RequestParam(required = false) NodeType ownerType) {
-		return review.listReviews(caller, new ReviewFilter(state, ownerType));
+			@RequestParam(required = false) NodeType ownerType,
+			@RequestParam(required = false) Integer limit,
+			@RequestParam(required = false) String after) {
+		return review.listReviews(caller, new ReviewFilter(state, ownerType, limit, after));
 	}
 
 	@GetMapping("/reviews/{reviewId}")

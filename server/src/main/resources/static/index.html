@@ -149,13 +149,17 @@ async function showReviews(message) {
   const url = '/api/v1/projects/' + seeded.projectId + '/reviews';
   const res = await api(url);
   if (!res.ok) { out.replaceChildren(el('div', 'card', (await res.json()).message)); return; }
-  const items = await res.json();
+  const items = (await res.json()).items;
   out.replaceChildren();
   out.append(el('h2', null, 'GET ' + url));
   if (message) out.append(el('div', 'card', message));
   out.append(el('h2', null, '확인할 것이 남은 묶음 ' + items.length + '개'));
   const labels = {};
-  items.forEach(i => { if (i.card) labels[i.owner.id] = i.card.label; });
+  items.forEach(i => {
+    if (i.card) labels[i.owner.id] = i.card.label;
+    i.related.forEach(c => labels[c.ref.id] = c.label);
+    i.sources.forEach(s => labels[s.span.id] = s.seq + '번 발언');
+  });
   const name = ref => labels[ref.id] || (TYPE[ref.type] + ' ' + ref.id.slice(0, 8));
   items.forEach(item => {
     const card = el('div', 'card');

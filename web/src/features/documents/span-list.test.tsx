@@ -63,4 +63,21 @@ describe('SpanList', () => {
     expect(scroll.mock.contexts[0]).toBe(highlighted[0])
     scroll.mockRestore()
   })
+
+  it('offers a correction button per span when correcting is allowed', async () => {
+    const onRevise = vi.fn()
+    const screen = await render(<SpanList spans={SPANS} onRevise={onRevise} />)
+
+    await screen.getByRole('button', { name: '3번 발언 정정' }).click()
+    expect(onRevise).toHaveBeenCalledWith(SPANS[2])
+  })
+
+  it('has no correction buttons for someone who cannot correct', async () => {
+    const screen = await render(<SpanList spans={SPANS} />)
+
+    await expect
+      .element(screen.getByText('예산 승인 전까지 인쇄는 보류입니다.'))
+      .toBeInTheDocument()
+    expect(screen.getByRole('button').elements()).toHaveLength(0)
+  })
 })

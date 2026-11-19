@@ -1,8 +1,13 @@
 package com.contexa.server.review;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -15,6 +20,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -32,6 +38,7 @@ import com.contexa.server.contract.NodeType;
 import com.contexa.server.contract.Ontology;
 import com.contexa.server.contract.RelType;
 import com.contexa.server.contract.ReviewStatus;
+import com.contexa.server.contract.Source;
 import com.contexa.server.decision.DecisionTask;
 import com.contexa.server.decision.NodeNotFoundException;
 import com.contexa.server.contract.NodeView;
@@ -72,6 +79,9 @@ public class ReviewImpact {
 	private static final Set<ReviewStatus> ACTIVE =
 			EnumSet.of(ReviewStatus.CANDIDATE, ReviewStatus.CONFIRMED, ReviewStatus.HELD);
 
+	/** 카드를 볼 수 있는지 따질 때 세는 근거 줄. 안내 데스크와 같은 기준이다. */
+	private static final Set<ReviewStatus> USABLE = EnumSet.of(ReviewStatus.CANDIDATE, ReviewStatus.CONFIRMED);
+
 	/** 아래쪽 카드에 딸리는 줄. */
 	private static final Set<RelType> OWNED_BY_DST = EnumSet.of(RelType.HAS_ITEM, RelType.HAS_EVENT);
 
@@ -82,7 +92,31 @@ public class ReviewImpact {
 	private static final Set<NodeType> NEEDS_EVIDENCE =
 			EnumSet.of(NodeType.DECISION_EVENT, NodeType.CONDITION, NodeType.TASK);
 
-	private record ItemRow(UUID id, UUID projectId, NodeKey owner, ReviewItem.State state, long version) {
+	private record ItemRow(UUID id, UUID projectId, NodeKey owner, ReviewItem.State state, long version,
+			OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+	}
+
+	private static final String ITEM_COLUMNS =
+			"id, project_id, owner_type, owner_id, state, version, created_at, updated_at";
+
+	/** 검토함 쪽 나누기 위치: 앞 쪽 마지막 묶음의 정렬 시각과 id. 화면에는 알아볼 수 없는 글자로 건넨다. */
+	private record Cursor(OffsetDateTime at, UUID id) {
+
+		String encode() {
+			String raw = at.toInstant() + "|" + id;
+			return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+		}
+
+		static Cursor parse(String value) {
+			try {
+				String raw = new String(Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8);
+				int bar = raw.indexOf('|');
+				return new Cursor(OffsetDateTime.ofInstant(Instant.parse(raw.substring(0, bar)), ZoneOffset.UTC),
+						UUID.fromString(raw.substring(bar + 1)));
+			} catch (RuntimeException e) {
+				throw new IllegalArgumentException("after 값을 읽을 수 없다: " + value);
+			}
+		}
 	}
 
 	private record Bundle(NodeView card, List<Edge> edges) {
@@ -192,34 +226,53 @@ public class ReviewImpact {
 
 	// ---- 검토 ----
 
-	/** 검토함. 만들어진 순서로 돌려준다. */
+	/**
+	 * 검토함 한 쪽. 확인할 것(OPEN)은 오래된 묶음부터, 처리한 것(DONE)은 최근에 바뀐 묶음부터 돌려준다.
+	 * 묶음이 몇 개든 DB는 정해진 횟수만 읽는다.
+	 */
 	@Transactional(readOnly = true)
-	public List<ReviewItem> listReviews(Caller caller, ReviewFilter filter) {
+	public ReviewPage listReviews(Caller caller, ReviewFilter filter) {
 		Objects.requireNonNull(caller, "caller");
 		ReviewFilter f = filter == null ? ReviewFilter.open() : filter;
 		ReviewItem.State state = f.state() == null ? ReviewItem.State.OPEN : f.state();
-		String sql = "select id, project_id, owner_type, owner_id, state, version from review_item"
+		int limit = f.limit() == null ? ReviewFilter.DEFAULT_LIMIT : f.limit();
+		if (limit < 1 || limit > ReviewFilter.MAX_LIMIT) {
+			throw new IllegalArgumentException("limit은 1~" + ReviewFilter.MAX_LIMIT + " 사이여야 한다: " + limit);
+		}
+		boolean newestFirst = state == ReviewItem.State.DONE;
+		String sortColumn = newestFirst ? "updated_at" : "created_at";
+		Cursor after = f.after() == null ? null : Cursor.parse(f.after());
+		String sql = "select " + ITEM_COLUMNS + " from review_item"
 				+ " where project_id = :projectId and state = :state"
 				+ (f.ownerType() == null ? "" : " and owner_type = :ownerType")
-				+ " order by created_at, id";
+				+ (after == null ? ""
+						: " and (" + sortColumn + ", id) " + (newestFirst ? "<" : ">") + " (:afterAt, :afterId)")
+				+ " order by " + sortColumn + (newestFirst ? " desc, id desc" : ", id")
+				+ " limit :limit";
 		JdbcClient.StatementSpec spec = jdbc.sql(sql).param("projectId", caller.projectId())
-				.param("state", state.name());
+				.param("state", state.name())
+				.param("limit", limit);
 		if (f.ownerType() != null) {
 			spec = spec.param("ownerType", f.ownerType().name());
 		}
-		Set<UUID> readable = identity.readableDocumentIds(caller);
-		return spec.query(ReviewImpact::mapItem).list().stream()
-				.filter(item -> visibleTo(caller, readable, bundle(item)))
-				.map(this::view)
-				.toList();
+		if (after != null) {
+			spec = spec.param("afterAt", after.at()).param("afterId", after.id());
+		}
+		List<ItemRow> rows = spec.query(ReviewImpact::mapItem).list();
+		String next = null;
+		if (rows.size() == limit) {
+			ItemRow last = rows.get(rows.size() - 1);
+			next = new Cursor(newestFirst ? last.updatedAt() : last.createdAt(), last.id()).encode();
+		}
+		return new ReviewPage(views(caller, rows, true), next);
 	}
 
 	@Transactional(readOnly = true)
 	public ReviewItem getReview(Caller caller, UUID reviewId) {
 		Objects.requireNonNull(caller, "caller");
 		ItemRow item = findItem(caller.projectId(), reviewId, false);
-		requireVisible(caller, item, bundle(item));
-		return view(item);
+		return views(caller, List.of(item), true).stream().findFirst()
+				.orElseThrow(() -> new ReviewNotFoundException(reviewId));
 	}
 
 	/**
@@ -240,7 +293,7 @@ public class ReviewImpact {
 		UUID projectId = caller.projectId();
 		ItemRow item = findItem(projectId, reviewId, true);
 		if (alreadyApplied(projectId, idempotencyKey)) {
-			return new ReviewResult(view(item), List.of());
+			return new ReviewResult(view(caller, item), List.of());
 		}
 		if (item.version() != expectedVersion) {
 			throw new ReviewVersionConflictException(reviewId, expectedVersion, item.version());
@@ -313,7 +366,7 @@ public class ReviewImpact {
 				.param("summary", summarize(action, card, cardFinal, bundle.edges(), edgeFinal))
 				.update();
 		touch(projectId, item.owner());
-		return new ReviewResult(view(findItem(projectId, reviewId, false)), impactsOf(projectId, changed));
+		return new ReviewResult(view(caller, findItem(projectId, reviewId, false)), impactsOf(projectId, changed));
 	}
 
 	// ---- 업무와 조건 ----
@@ -575,22 +628,125 @@ public class ReviewImpact {
 		return OWNED_BY_DST.contains(edge.rel()) ? edge.dst() : edge.src();
 	}
 
-	private Bundle bundle(ItemRow item) {
-		NodeRef owner = new NodeRef(item.owner().type(), item.owner().id(), 1);
-		NodeView card = isCard(owner.type())
-				? cards(item.projectId(), List.of(owner)).stream().findFirst().orElse(null)
-				: null;
-		List<Edge> edges = new ArrayList<>();
-		edges.addAll(graph.edgesOf(item.projectId(), owner, Direction.IMPACT, OWNED_BY_DST, ACTIVE));
-		edges.addAll(graph.edgesOf(item.projectId(), owner, Direction.BASIS, OWNED_BY_SRC, ACTIVE));
-		return new Bundle(card, edges);
+	/** 줄의 건너편: 묶음 주인이 아닌 쪽 끝. */
+	private static NodeRef farEnd(Edge edge, NodeKey owner) {
+		return edge.src().key().equals(owner) ? edge.dst() : edge.src();
 	}
 
-	private ReviewItem view(ItemRow item) {
-		Bundle bundle = bundle(item);
-		NodeRef owner = bundle.card() != null ? bundle.card().ref()
-				: new NodeRef(item.owner().type(), item.owner().id(), 1);
-		return new ReviewItem(item.id(), item.version(), item.state(), owner, bundle.card(), bundle.edges());
+	/** 줄이 가리키거나 근거로 대는 발언. */
+	private static List<UUID> spansOf(Edge edge) {
+		List<UUID> ids = new ArrayList<>();
+		if (edge.src().type() == NodeType.SPAN) {
+			ids.add(edge.src().id());
+		}
+		if (edge.dst().type() == NodeType.SPAN) {
+			ids.add(edge.dst().id());
+		}
+		ids.addAll(edge.evidenceSpanIds());
+		return ids;
+	}
+
+	/** 여러 카드의 검토 묶음(카드 내용과 딸린 살아 있는 줄)을 한 번에 읽는다. 줄은 아래쪽 카드에 딸린 것부터 담는다. */
+	private Map<NodeKey, Bundle> bundles(UUID projectId, Collection<NodeKey> owners) {
+		Map<NodeKey, NodeView> cards = new HashMap<>();
+		cards(projectId, owners.stream().filter(key -> isCard(key.type()))
+				.map(key -> new NodeRef(key.type(), key.id(), 1)).toList())
+				.forEach(view -> cards.put(view.ref().key(), view));
+		Map<NodeKey, List<Edge>> edges = new HashMap<>();
+		graph.edgesOfMany(projectId, owners, Direction.IMPACT, OWNED_BY_DST, ACTIVE)
+				.forEach(edge -> edges.computeIfAbsent(edge.dst().key(), key -> new ArrayList<>()).add(edge));
+		graph.edgesOfMany(projectId, owners, Direction.BASIS, OWNED_BY_SRC, ACTIVE)
+				.forEach(edge -> edges.computeIfAbsent(edge.src().key(), key -> new ArrayList<>()).add(edge));
+		Map<NodeKey, Bundle> bundles = new HashMap<>();
+		for (NodeKey owner : owners) {
+			bundles.put(owner, new Bundle(cards.get(owner), edges.getOrDefault(owner, List.of())));
+		}
+		return bundles;
+	}
+
+	private Bundle bundle(ItemRow item) {
+		return bundles(item.projectId(), List.of(item.owner())).get(item.owner());
+	}
+
+	/**
+	 * 검토 묶음을 화면에 보낼 모양으로 꾸린다. 묶음이 몇 개든 DB는 정해진 횟수만 읽는다.
+	 * 건너편 카드와 원문은 이 사람이 읽을 수 있는 것만 싣는다. 기준은 안내 데스크와 같다:
+	 * 근거 줄이 있는데 그중 읽을 수 있는 것이 하나도 없으면 그 카드는 보이지 않는다.
+	 *
+	 * @param hideUnseeable 근거를 하나도 읽을 수 없는 묶음을 뺀다. 방금 처리한 묶음을 돌려줄 때는 빼지 않는다
+	 */
+	private List<ReviewItem> views(Caller caller, List<ItemRow> items, boolean hideUnseeable) {
+		if (items.isEmpty()) {
+			return List.of();
+		}
+		UUID projectId = caller.projectId();
+		Map<NodeKey, Bundle> bundles = bundles(projectId, items.stream().map(ItemRow::owner).distinct().toList());
+
+		Map<NodeKey, NodeRef> farRefs = new LinkedHashMap<>();
+		for (ItemRow item : items) {
+			for (Edge edge : bundles.get(item.owner()).edges()) {
+				NodeRef far = farEnd(edge, item.owner());
+				if (isCard(far.type())) {
+					farRefs.putIfAbsent(far.key(), far);
+				}
+			}
+		}
+		Map<NodeKey, NodeView> farCards = new HashMap<>();
+		cards(projectId, farRefs.values()).forEach(view -> farCards.put(view.ref().key(), view));
+		List<NodeKey> gated = farCards.keySet().stream().filter(key -> NEEDS_EVIDENCE.contains(key.type())).toList();
+		List<Edge> farEvidence = gated.isEmpty() ? List.of()
+				: graph.edgesOfMany(projectId, gated, Direction.BASIS, EnumSet.of(RelType.EVIDENCED_BY), USABLE);
+
+		Set<UUID> spanIds = new LinkedHashSet<>();
+		bundles.values().forEach(bundle -> bundle.edges().forEach(edge -> spanIds.addAll(spansOf(edge))));
+		farEvidence.forEach(edge -> spanIds.add(edge.dst().id()));
+		Map<UUID, Span> spans = new HashMap<>();
+		document.getSpans(projectId, spanIds).forEach(span -> spans.put(span.ref().id(), span));
+		Set<UUID> readableDocuments = identity.readableDocumentIds(caller);
+		Predicate<UUID> readable = id -> spans.containsKey(id)
+				&& readableDocuments.contains(spans.get(id).documentId());
+
+		Set<NodeKey> evidenced = new HashSet<>();
+		Set<NodeKey> seeable = new HashSet<>();
+		for (Edge edge : farEvidence) {
+			evidenced.add(edge.src().key());
+			if (readable.test(edge.dst().id())) {
+				seeable.add(edge.src().key());
+			}
+		}
+
+		List<ReviewItem> views = new ArrayList<>();
+		for (ItemRow item : items) {
+			Bundle bundle = bundles.get(item.owner());
+			List<UUID> evidence = bundle.edges().stream().flatMap(edge -> edge.evidenceSpanIds().stream()).toList();
+			if (hideUnseeable && !evidence.isEmpty() && evidence.stream().noneMatch(readable)) {
+				continue;
+			}
+			Map<NodeKey, NodeView> related = new LinkedHashMap<>();
+			Set<UUID> cited = new LinkedHashSet<>();
+			for (Edge edge : bundle.edges()) {
+				NodeKey far = farEnd(edge, item.owner()).key();
+				NodeView view = farCards.get(far);
+				if (view != null && (!evidenced.contains(far) || seeable.contains(far))) {
+					related.putIfAbsent(far, view);
+				}
+				cited.addAll(spansOf(edge));
+			}
+			List<Source> sources = cited.stream().filter(readable).map(spans::get)
+					.map(span -> new Source(span.ref(), span.documentId(), span.seq(), span.speakerLabel(),
+							span.text()))
+					.toList();
+			NodeRef owner = bundle.card() != null ? bundle.card().ref()
+					: new NodeRef(item.owner().type(), item.owner().id(), 1);
+			views.add(new ReviewItem(item.id(), item.version(), item.state(), owner, bundle.card(), bundle.edges(),
+					List.copyOf(related.values()), sources));
+		}
+		return views;
+	}
+
+	/** 방금 처리한 묶음. 처리한 사람에게는 근거를 읽을 수 없게 됐어도 돌려준다(원문과 건너편 카드는 걸러진다). */
+	private ReviewItem view(Caller caller, ItemRow item) {
+		return views(caller, List.of(item), false).get(0);
 	}
 
 	/**
@@ -600,10 +756,10 @@ public class ReviewImpact {
 	 */
 	private UUID touch(UUID projectId, NodeKey owner) {
 		UUID id = jdbc.sql("""
-				insert into review_item (id, project_id, owner_type, owner_id, created_at)
-				values (:id, :projectId, :ownerType, :ownerId, clock_timestamp())
+				insert into review_item (id, project_id, owner_type, owner_id, created_at, updated_at)
+				values (:id, :projectId, :ownerType, :ownerId, clock_timestamp(), clock_timestamp())
 				on conflict (project_id, owner_type, owner_id)
-				    do update set version = review_item.version + 1, updated_at = now()
+				    do update set version = review_item.version + 1, updated_at = clock_timestamp()
 				returning id
 				""")
 				.param("id", UUID.randomUUID())
@@ -612,7 +768,7 @@ public class ReviewImpact {
 				.param("ownerId", owner.id())
 				.query((rs, n) -> rs.getObject("id", UUID.class))
 				.single();
-		Bundle bundle = bundle(new ItemRow(id, projectId, owner, ReviewItem.State.OPEN, 1));
+		Bundle bundle = bundles(projectId, List.of(owner)).get(owner);
 		boolean pending = (bundle.card() != null && isPending(bundle.card().status()))
 				|| bundle.edges().stream().anyMatch(edge -> isPending(edge.status()));
 		jdbc.sql("update review_item set state = :state where id = :id")
@@ -628,7 +784,7 @@ public class ReviewImpact {
 
 	private ItemRow findItem(UUID projectId, UUID reviewId, boolean forUpdate) {
 		Objects.requireNonNull(reviewId, "reviewId");
-		return jdbc.sql("select id, project_id, owner_type, owner_id, state, version from review_item"
+		return jdbc.sql("select " + ITEM_COLUMNS + " from review_item"
 				+ " where id = :id and project_id = :projectId" + (forUpdate ? " for update" : ""))
 				.param("id", reviewId)
 				.param("projectId", projectId)
@@ -780,6 +936,7 @@ public class ReviewImpact {
 	private static ItemRow mapItem(ResultSet rs, int rowNum) throws SQLException {
 		return new ItemRow(rs.getObject("id", UUID.class), rs.getObject("project_id", UUID.class),
 				new NodeKey(NodeType.valueOf(rs.getString("owner_type")), rs.getObject("owner_id", UUID.class)),
-				ReviewItem.State.valueOf(rs.getString("state")), rs.getLong("version"));
+				ReviewItem.State.valueOf(rs.getString("state")), rs.getLong("version"),
+				rs.getObject("created_at", OffsetDateTime.class), rs.getObject("updated_at", OffsetDateTime.class));
 	}
 }

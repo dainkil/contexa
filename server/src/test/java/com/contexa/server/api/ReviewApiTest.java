@@ -1,7 +1,9 @@
 package com.contexa.server.api;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -51,19 +53,38 @@ class ReviewApiTest {
 	void 검토함에는_확인할_것이_남은_묶음만_나온다() throws Exception {
 		mvc.perform(get(base + "/reviews"))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$[*].card.label", hasItem("아랍어 문구 검토")))
-				.andExpect(jsonPath("$[*].card.label", hasItem("인쇄 발주")))
-				.andExpect(jsonPath("$[*].card.label", hasItem("12월 5일로 변경")))
-				.andExpect(jsonPath("$[?(@.card.label == '아랍어 문구 검토')].card.status").value("CANDIDATE"));
+				.andExpect(jsonPath("$.items[*].card.label", hasItem("아랍어 문구 검토")))
+				.andExpect(jsonPath("$.items[*].card.label", hasItem("인쇄 발주")))
+				.andExpect(jsonPath("$.items[*].card.label", hasItem("12월 5일로 변경")))
+				.andExpect(jsonPath("$.items[?(@.card.label == '아랍어 문구 검토')].card.status").value("CANDIDATE"));
 		mvc.perform(get(base + "/reviews").param("state", "DONE"))
-				.andExpect(jsonPath("$[*].card.label", hasItem("인쇄 예산 승인")));
+				.andExpect(jsonPath("$.items[*].card.label", hasItem("인쇄 예산 승인")));
+	}
+
+	@Test
+	void 묶음에는_건너편_카드_이름과_근거_원문이_실리고_쪽을_나눠_읽는다() throws Exception {
+		mvc.perform(get(base + "/reviews"))
+				.andExpect(jsonPath("$.next").doesNotExist())
+				.andExpect(jsonPath("$.items[?(@.card.label == '인쇄 발주')].related[*].label",
+						hasItem("인쇄 예산 승인")))
+				.andExpect(jsonPath("$.items[?(@.card.label == '인쇄 발주')].sources[*].text",
+						hasItem(containsString("인쇄 발주"))));
+
+		String first = mvc.perform(get(base + "/reviews").param("limit", "1"))
+				.andExpect(jsonPath("$.items", hasSize(1)))
+				.andExpect(jsonPath("$.next").isString())
+				.andReturn().getResponse().getContentAsString();
+		mvc.perform(get(base + "/reviews").param("limit", "1").param("after", JsonPath.<String>read(first, "$.next")))
+				.andExpect(jsonPath("$.items[0].id").value(not(JsonPath.<String>read(first, "$.items[0].id"))));
+		mvc.perform(get(base + "/reviews").param("limit", "500"))
+				.andExpect(status().isBadRequest());
 	}
 
 	@Test
 	void 묶음을_확인하면_검토함에서_빠지고_같은_요청을_다시_보내도_한_번만_처리된다() throws Exception {
 		String reviews = mvc.perform(get(base + "/reviews")).andReturn().getResponse().getContentAsString();
-		List<String> ids = JsonPath.read(reviews, "$[?(@.card.label == '아랍어 문구 검토')].id");
-		List<Integer> versions = JsonPath.read(reviews, "$[?(@.card.label == '아랍어 문구 검토')].version");
+		List<String> ids = JsonPath.read(reviews, "$.items[?(@.card.label == '아랍어 문구 검토')].id");
+		List<Integer> versions = JsonPath.read(reviews, "$.items[?(@.card.label == '아랍어 문구 검토')].version");
 		String body = """
 				{"card":"CONFIRM","expectedVersion":%d,"idempotencyKey":"web-1"}
 				""".formatted(versions.get(0));
@@ -85,7 +106,7 @@ class ReviewApiTest {
 	@Test
 	void 낡은_버전으로_처리하면_409이고_없는_묶음은_404다() throws Exception {
 		String reviews = mvc.perform(get(base + "/reviews")).andReturn().getResponse().getContentAsString();
-		List<String> ids = JsonPath.read(reviews, "$[?(@.card.label == '아랍어 문구 검토')].id");
+		List<String> ids = JsonPath.read(reviews, "$.items[?(@.card.label == '아랍어 문구 검토')].id");
 
 		mvc.perform(post(base + "/reviews/" + ids.get(0) + "/actions").contentType(MediaType.APPLICATION_JSON)
 				.content("{\"card\":\"CONFIRM\",\"expectedVersion\":999,\"idempotencyKey\":\"web-2\"}"))

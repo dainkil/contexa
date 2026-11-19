@@ -195,14 +195,27 @@ export type TaskStatus =
   | 'DONE'
   | 'CANCELLED'
 
-/** 검토함의 카드 묶음 하나. */
+/**
+ * 검토함의 카드 묶음 하나. server review/ReviewItem.java
+ * card는 발언 묶음(누가 말했나·누구를 언급했나)처럼 카드 내용이 없는 묶음이면 null이다.
+ */
 export interface ReviewItem {
   id: Uuid
   version: number
   state: ReviewState
   owner: NodeRef
-  card: NodeView
+  card: NodeView | null
   edges: Edge[]
+  /** 줄 건너편 카드. 근거를 하나도 읽을 수 없는 카드는 빠진다(줄은 edges에 남는다). */
+  related: NodeView[]
+  /** 줄이 가리키거나 근거로 대는 발언의 원문. 읽을 수 있는 문서의 것만. */
+  sources: Source[]
+}
+
+/** 검토함 한 쪽. next를 after로 보내면 다음 쪽이 온다. 더 없으면 null. */
+export interface ReviewPage {
+  items: ReviewItem[]
+  next: string | null
 }
 
 export interface Impact {

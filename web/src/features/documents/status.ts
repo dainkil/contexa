@@ -1,4 +1,4 @@
-import type { DocumentKind, JobBrief, VersionStatus } from '@/api/types'
+import type { DocumentKind, Impact, JobBrief, VersionStatus } from '@/api/types'
 
 /**
  * 문서 한 판의 처리 단계. 판 하나에는 작업이 두 개 붙는다.
@@ -192,4 +192,12 @@ const dateFormat = new Intl.DateTimeFormat('ko-KR', {
 /** 저장은 ISO 8601, 화면에서만 지역화한다. */
 export function formatInstant(iso: string): string {
   return dateFormat.format(new Date(iso))
+}
+
+/** 정정한 뒤 알림 문장. 이 발언에 기댄 카드가 있으면 다시 확인이 필요하다고 덧붙인다. */
+export function revisedMessage(impacts: Impact[]): string {
+  const affected = new Set(impacts.map((i) => i.affected.id)).size
+  return affected > 0
+    ? `발언을 정정했습니다. 이 발언에 기댄 카드 ${affected}개는 다시 확인이 필요합니다.`
+    : '발언을 정정했습니다.'
 }
