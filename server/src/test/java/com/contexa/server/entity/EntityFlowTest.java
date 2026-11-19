@@ -98,7 +98,7 @@ class EntityFlowTest {
 						EdgeDraft.between(RelType.ASSIGNED_TO, "arabic", "ahmad", ev),
 						EdgeDraft.fromExisting(RelType.MENTIONS, span, "ahmed", ev),
 						EdgeDraft.fromExisting(RelType.MENTIONS, span, "ahmad", ev))));
-		for (ReviewItem item : review.listReviews(reviewer, ReviewFilter.open())) {
+		for (ReviewItem item : review.listReviews(reviewer, ReviewFilter.open()).items()) {
 			if (item.card() != null) {
 				saved.put(item.card().label(), item.owner());
 			}
@@ -265,7 +265,7 @@ class EntityFlowTest {
 	void 발언의_이름이_누구를_가리키는지는_발언_묶음에서_줄마다_정한다() {
 		confirm("Ahmed Hassan");
 		confirm("Ahmad Al-Hasan");
-		ReviewItem mentions = review.listReviews(reviewer, new ReviewFilter(ReviewItem.State.OPEN, NodeType.SPAN))
+		ReviewItem mentions = review.listReviews(reviewer, new ReviewFilter(ReviewItem.State.OPEN, NodeType.SPAN)).items()
 				.get(0);
 		assertThat(mentions.card()).isNull();
 		assertThat(mentions.edges()).extracting(Edge::rel).containsOnly(RelType.MENTIONS).hasSize(2);
@@ -298,7 +298,7 @@ class EntityFlowTest {
 
 	private ReviewItem item(String label) {
 		for (ReviewItem.State state : ReviewItem.State.values()) {
-			for (ReviewItem item : review.listReviews(reviewer, new ReviewFilter(state, null))) {
+			for (ReviewItem item : review.listReviews(reviewer, new ReviewFilter(state, null)).items()) {
 				if (item.card() != null && item.card().label().equals(label)) {
 					return item;
 				}

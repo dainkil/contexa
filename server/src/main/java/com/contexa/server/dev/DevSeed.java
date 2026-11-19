@@ -138,7 +138,7 @@ public class DevSeed {
 
 		// 검토자가 묶음마다 확인한다. 날짜 변경이 이전 날짜를 대체한다는 줄만 판단을 보류한다
 		// → "행사 날짜"는 확정된 결정이 둘 겹친 경합 상태로 남는다
-		for (ReviewItem item : review.listReviews(reviewer, ReviewFilter.open())) {
+		for (ReviewItem item : review.listReviews(reviewer, ReviewFilter.open()).items()) {
 			Map<UUID, Verdict> perEdge = new HashMap<>();
 			item.edges().stream()
 					.filter(edge -> edge.rel() == RelType.SUPERSEDES)
@@ -178,7 +178,7 @@ public class DevSeed {
 		Map<String, NodeRef> named = new LinkedHashMap<>();
 		Map<UUID, NodeRef> latest = new HashMap<>();
 		for (ReviewItem.State state : ReviewItem.State.values()) {
-			review.listReviews(reviewer, new ReviewFilter(state, null))
+			review.listReviews(reviewer, new ReviewFilter(state, null)).items()
 					.forEach(item -> latest.put(item.owner().id(), item.owner()));
 		}
 		Map<String, String> shortNames = Map.of("국제교류 행사", "topic", "개최 방식", "format", "행사 날짜", "date",
@@ -239,7 +239,7 @@ public class DevSeed {
 
 	private void progress(Caller reviewer, Map<String, NodeRef> nodes, String name, TaskStatus status) {
 		// 확인하면서 버전이 올랐으므로 검토함에서 현재 버전을 다시 읽는다
-		NodeRef task = review.listReviews(reviewer, new ReviewFilter(ReviewItem.State.DONE, NodeType.TASK)).stream()
+		NodeRef task = review.listReviews(reviewer, new ReviewFilter(ReviewItem.State.DONE, NodeType.TASK)).items().stream()
 				.map(ReviewItem::owner)
 				.filter(owner -> owner.id().equals(nodes.get(name).id()))
 				.findFirst()

@@ -387,7 +387,7 @@ linkAccount(UUID projectId, UUID entityId, UUID accountId /* null이면 끊기 *
 ### B.5 `review-impact`
 ```
 submitCandidates(Caller source, GraphCandidates c) : List<UUID>      // 누구나. 연필로 저장하고 검토 묶음을 만든다
-listReviews(Caller c, ReviewFilter f) : List<ReviewItem>
+listReviews(Caller c, ReviewFilter f /* state, ownerType, limit, after */) : ReviewPage   // {items, next}
 getReview(Caller c, UUID reviewId) : ReviewItem
 applyAction(Caller c, UUID reviewId, ReviewAction a, long expectedVersion, String idempotencyKey) : ReviewResult
 changeTaskStatus(Caller c, UUID taskId, TaskStatus s, long expectedRevision) : Changed   // 구성원
@@ -399,6 +399,9 @@ linkAccount(Caller c, UUID entityId, UUID accountId) : Changed
 reviseSpan(Caller c, UUID spanId, long expectedRevision, String text) : Changed
 listImpacts(UUID projectId, NodeRef changed) : List<Impact>
 ```
+- 검토함은 쪽을 나눠 읽는다. 확인할 것(OPEN)은 오래된 묶음부터, 처리한 것(DONE)은 최근에 바뀐 묶음부터 나온다. `limit` 기본 50, 최대 200. 다음 쪽은 `next`를 `after`로 보낸다. 근거를 하나도 읽을 수 없는 묶음은 빠지므로 `items`가 `limit`보다 적어도 `next`가 있을 수 있다.
+- 묶음 수와 상관없이 정해진 횟수만 DB를 읽는다(카드·줄·건너편 카드·발언을 한 번씩 모아 읽는다).
+- `ReviewItem`에는 카드와 줄 말고도 `related`(줄 건너편 카드)와 `sources`(줄이 가리키거나 근거로 대는 발언의 원문)가 실린다. 기준은 `context-gateway`와 같다: 원문은 읽을 수 있는 문서의 것만, 건너편 카드는 근거 줄이 있는데 하나도 읽을 수 없으면 뺀다(줄은 그대로 `edges`에 있다).
 - **검토 묶음**: 카드 한 장과 그 카드에 딸린 줄. 줄은 기대는 쪽(`src`) 카드에 딸린다. 다만 `HAS_ITEM`·`HAS_EVENT`는 아래쪽 카드(항목, 사건)에 딸린다. 새 사건을 확인할 때 "어느 항목의 사건인지"도 함께 확인해야 하기 때문이다. `MENTIONS`·`SPOKEN_BY`는 발언에 딸리며, 그 묶음에는 카드 판단 없이 줄마다 판단을 내린다. 묶음은 카드마다 하나이고, 새 후보가 들어오면 다시 열린다.
 - **판단**(`Verdict`): `CONFIRM`, `HOLD`, `REJECT`, `RETRACT`. 따로 판단하지 않은 줄은 카드 판단을 따라간다. 내용 정정(`corrections`)을 함께 할 수 있다.
 - **권한**: 확인·정정은 사람이면서 프로젝트의 OWNER·REVIEWER만 한다. AI 작업과 외부 에이전트는 `submitCandidates`만 할 수 있다. 업무 상태는 구성원이면 바꾼다. 업무 수락은 계정이 확인된 인물 카드에 연결되어 있고, 그 인물로 가는 `ASSIGNED_TO` 줄이 확인된 본인만 한다.
@@ -543,7 +546,7 @@ ContextController   GET  /api/v1/projects/{id}/context/trace?type=&id=&direction
                     GET  /api/v1/projects/{id}/context/entities?surface=[&lang=]
                     GET  /api/v1/projects/{id}/context/entities/{entityId}
                     POST /api/v1/projects/{id}/context/verify           {nodes, edges}
-ReviewController    GET  /api/v1/projects/{id}/reviews[?state=&ownerType=], /reviews/{reviewId}
+ReviewController    GET  /api/v1/projects/{id}/reviews[?state=&ownerType=&limit=&after=], /reviews/{reviewId}
                     POST /api/v1/projects/{id}/reviews/{reviewId}/actions
                     POST /api/v1/projects/{id}/tasks/{taskId}/status, /tasks/{taskId}/acceptance
                     POST /api/v1/projects/{id}/conditions/{conditionId}/satisfied

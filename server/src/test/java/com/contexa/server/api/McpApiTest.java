@@ -208,7 +208,7 @@ class McpApiTest {
 		String reviewId = JsonPath.read(proposed, "$.result.structuredContent.reviewIds[0]");
 
 		mvc.perform(get(base + "/reviews").header("Authorization", "Bearer " + ownerToken))
-				.andExpect(jsonPath("$[?(@.card.label == '인쇄소 견적 받기')].card.status").value("CANDIDATE"));
+				.andExpect(jsonPath("$.items[?(@.card.label == '인쇄소 견적 받기')].card.status").value("CANDIDATE"));
 		// 에이전트 토큰으로는 정문으로 돌아가도 확인할 수 없다
 		mvc.perform(post(base + "/reviews/" + reviewId + "/actions").header("Authorization", "Bearer " + internalAgent)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -231,7 +231,7 @@ class McpApiTest {
 		call(externalAgent, "propose_candidates", withSpan.formatted(span, "[\"" + span + "\"]"))
 				.andExpect(jsonPath("$.result.isError").value(true));
 		mvc.perform(get(base + "/reviews").header("Authorization", "Bearer " + ownerToken))
-				.andExpect(jsonPath("$[*].card.label", not(hasItem("견적"))));
+				.andExpect(jsonPath("$.items[*].card.label", not(hasItem("견적"))));
 	}
 
 	// ---- 도우미 ----

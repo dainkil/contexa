@@ -116,7 +116,7 @@ class IngestFlowTest {
 				.contentType(MediaType.APPLICATION_JSON).content(candidates(span1, span2, "CONDITION", "TASK")))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("허용되지 않은 줄")));
-		mvc.perform(asUser(get(base + "/reviews"))).andExpect(jsonPath("$", hasSize(0)));
+		mvc.perform(asUser(get(base + "/reviews"))).andExpect(jsonPath("$.items", hasSize(0)));
 
 		// 5. 같은 임대증으로 고친 후보를 다시 낸다
 		mvc.perform(leased(post("/internal/v1/jobs/" + extractJob + "/result"), extract)
@@ -126,8 +126,8 @@ class IngestFlowTest {
 
 		// 6. 사람의 검토함에 AI 후보가 들어와 있다. 줄 세운 일은 더 없다
 		mvc.perform(asUser(get(base + "/reviews")))
-				.andExpect(jsonPath("$[*].card.label", hasItems("인쇄 발주", "예산 승인")))
-				.andExpect(jsonPath("$[*].card.status", hasItem("CANDIDATE")));
+				.andExpect(jsonPath("$.items[*].card.label", hasItems("인쇄 발주", "예산 승인")))
+				.andExpect(jsonPath("$.items[*].card.status", hasItem("CANDIDATE")));
 		mvc.perform(asUser(get(base + "/context/state")))
 				.andExpect(jsonPath("$.facts[*].label", hasItems("인쇄 발주", "예산 승인")))
 				.andExpect(jsonPath("$.sources[*].text", hasItem("예산 승인 전까지 인쇄는 보류입니다.")));

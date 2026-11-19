@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,9 +26,11 @@ import com.contexa.server.contract.GraphCandidates;
 import com.contexa.server.contract.NodeDraft;
 import com.contexa.server.contract.NodeRef;
 import com.contexa.server.contract.NodeType;
+import com.contexa.server.contract.NodeView;
 import com.contexa.server.contract.OpenIssue;
 import com.contexa.server.contract.RelType;
 import com.contexa.server.contract.ReviewStatus;
+import com.contexa.server.contract.Source;
 import com.contexa.server.decision.DecisionStatus;
 import com.contexa.server.decision.DecisionTask;
 import com.contexa.server.decision.NodeNotFoundException;
@@ -170,7 +173,7 @@ class ReviewImpactTest {
 
 		assertThat(jdbc.sql("select count(*) from task where project_id = :p").param("p", other)
 				.query(Long.class).single()).isZero();
-		assertThat(review.listReviews(otherOwner, null)).isEmpty();
+		assertThat(review.listReviews(otherOwner, null).items()).isEmpty();
 	}
 
 	@Test
@@ -310,7 +313,7 @@ class ReviewImpactTest {
 
 		assertThatThrownBy(() -> review.applyAction(outsider, print.id(), ReviewAction.ofCard(Verdict.CONFIRM),
 				print.version(), "k1")).isInstanceOf(ReviewNotFoundException.class);
-		assertThat(review.listReviews(outsider, null)).isEmpty();
+		assertThat(review.listReviews(outsider, null).items()).isEmpty();
 	}
 
 	// ---- 결정이 바뀌는 흐름 ----
@@ -398,13 +401,73 @@ class ReviewImpactTest {
 
 		UUID reviewId = review.submitCandidates(jobForMember, fromMemo).get(0);
 
-		assertThat(review.listReviews(member, null)).extracting(ReviewItem::id).contains(reviewId);
-		assertThat(review.listReviews(reviewer, null)).extracting(ReviewItem::id).doesNotContain(reviewId);
+		assertThat(review.listReviews(member, null).items()).extracting(ReviewItem::id).contains(reviewId);
+		assertThat(review.listReviews(reviewer, null).items()).extracting(ReviewItem::id).doesNotContain(reviewId);
 		assertThatThrownBy(() -> review.getReview(reviewer, reviewId)).isInstanceOf(ReviewNotFoundException.class);
 		assertThatThrownBy(() -> review.applyAction(reviewer, reviewId, ReviewAction.ofCard(Verdict.CONFIRM), 1, "x"))
 				.isInstanceOf(ReviewNotFoundException.class);
 		assertThat(review.applyAction(member, reviewId, ReviewAction.ofCard(Verdict.CONFIRM),
 				review.getReview(member, reviewId).version(), "y").item().state()).isEqualTo(ReviewItem.State.DONE);
+	}
+
+	@Test
+	void 묶음에는_건너편_카드와_근거_원문이_함께_실린다() {
+		ReviewItem print = item("인쇄 발주");
+		assertThat(print.related()).extracting(NodeView::label).containsExactly("예산 승인");
+		assertThat(print.sources()).extracting(Source::text)
+				.containsExactlyInAnyOrder("예산 승인 전까지 인쇄는 보류입니다.", "인쇄 발주는 다음 주에 진행하죠.");
+		assertThat(print.sources()).allSatisfy(source -> assertThat(source.documentId()).isNotNull());
+
+		// 사건 쪽 묶음에는 위의 항목과 대체 대상 사건이 함께 실린다. 근거 발언은 카드가 아니라 원문으로 실린다
+		assertThat(item("하이브리드로 변경").related()).extracting(NodeView::label)
+				.containsExactlyInAnyOrder("개최 방식", "대면 개최");
+	}
+
+	@Test
+	void 남의_개인_메모에서_나온_원문과_건너편_카드는_싣지_않는다() {
+		Caller member = Fixtures.newMember(identity, reviewer, Role.REVIEWER);
+		NodeRef memo = Fixtures.document(document, member, Visibility.PRIVATE, false,
+				"(개인 메모) 인쇄소 견적을 두 군데서 받아 보자.").get(0);
+		Caller jobForMember = new Caller(Caller.Kind.JOB, UUID.randomUUID(), projectId, member.id(),
+				Caller.Audience.INTERNAL);
+		review.submitCandidates(jobForMember, new GraphCandidates(
+				List.of(new NodeDraft("quotes", NodeType.CONDITION, Map.of("description", "견적 두 곳 비교"))),
+				List.of(EdgeDraft.fromExisting(RelType.REQUIRES, item("인쇄 발주").owner(), "quotes",
+						List.of(memo.id())),
+						EdgeDraft.toExisting(RelType.EVIDENCED_BY, "quotes", memo, List.of(memo.id())))));
+
+		// 다른 근거는 읽을 수 있으니 묶음은 보이고, 줄도 그대로 있다. 메모 원문과 메모에서 나온 조건만 빠진다
+		ReviewItem forOwner = item("인쇄 발주");
+		assertThat(forOwner.edges()).filteredOn(edge -> edge.rel() == RelType.REQUIRES).hasSize(2);
+		assertThat(forOwner.related()).extracting(NodeView::label).containsExactly("예산 승인");
+		assertThat(forOwner.sources()).extracting(Source::text).noneMatch(text -> text.contains("개인 메모"));
+
+		ReviewItem forMember = review.getReview(member, forOwner.id());
+		assertThat(forMember.related()).extracting(NodeView::label)
+				.containsExactlyInAnyOrder("예산 승인", "견적 두 곳 비교");
+		assertThat(forMember.sources()).extracting(Source::text).anyMatch(text -> text.contains("개인 메모"));
+	}
+
+	@Test
+	void 검토함은_쪽을_나눠_읽고_처리한_것은_최근에_바뀐_묶음부터_나온다() {
+		ReviewPage first = review.listReviews(reviewer, new ReviewFilter(ReviewItem.State.OPEN, null, 4, null));
+		ReviewPage second = review.listReviews(reviewer,
+				new ReviewFilter(ReviewItem.State.OPEN, null, 4, first.next()));
+		assertThat(first.items()).hasSize(4);
+		assertThat(second.items()).hasSize(2);
+		assertThat(second.next()).isNull();
+		assertThat(Stream.concat(first.items().stream(), second.items().stream()).map(ReviewItem::id).distinct())
+				.hasSize(6);
+
+		confirm("예산 승인");
+		confirm("인쇄 발주");
+		assertThat(review.listReviews(reviewer, new ReviewFilter(ReviewItem.State.DONE, null)).items())
+				.extracting(item -> item.card().label()).containsExactly("인쇄 발주", "예산 승인");
+
+		assertThatThrownBy(() -> review.listReviews(reviewer, new ReviewFilter(null, null, 0, null)))
+				.isInstanceOf(IllegalArgumentException.class);
+		assertThatThrownBy(() -> review.listReviews(reviewer, new ReviewFilter(null, null, null, "not-a-cursor")))
+				.isInstanceOf(IllegalArgumentException.class);
 	}
 
 	@Test
@@ -529,7 +592,7 @@ class ReviewImpactTest {
 	private void reload() {
 		items = new HashMap<>();
 		for (ReviewItem.State state : ReviewItem.State.values()) {
-			review.listReviews(reviewer, new ReviewFilter(state, null))
+			review.listReviews(reviewer, new ReviewFilter(state, null)).items()
 					.forEach(item -> items.put(item.card().label(), item));
 		}
 	}
