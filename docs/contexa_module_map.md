@@ -577,6 +577,20 @@ server.py    ServerClient            뒷문 클라이언트 (표준 라이브러
 ### B.10 웹
 `contextClient.ts`만 `/context/*`를 호출하고, 페이지 컴포넌트는 돌려받은 `ContextPacket`만 그린다. 바꾸는 동작은 `reviewClient.ts` 하나로 모은다.
 
+`web/src/api/` (React + TypeScript + Vite. 개발 중에는 Vite가 `/api`를 `127.0.0.1:8090`으로 프록시한다)
+```
+http.ts           axios 인스턴스(baseURL /api/v1). 요청마다 Authorization: Bearer
+types.ts          server 응답 타입. 원본은 Java contract·컨트롤러 record
+contextClient.ts  trace · currentState · decisionHistory · searchEvidence · tasks
+                  resolveEntity · nameCard · verifyCurrent                     (ContextController)
+reviewClient.ts   listReviews · getReview · applyReviewAction · changeTaskStatus · acceptTask
+                  satisfyCondition · setEntityName · linkEntityAccount · reviseSpan · listImpacts
+                                                                               (ReviewController)
+authClient.ts     signUp · login · listProjects · createProject · setMember     (AuthController)
+```
+- 문서·작업(`DocumentController`), 질문·답변(`GenerationController`) 클라이언트는 그 화면을 만들 때 추가한다.
+- 화면은 `/p/{projectId}/…` 아래에 있다. 내 프로젝트 목록에 없는 id는 열지 않지만, 실제 권한 검사는 server가 요청마다 한다.
+
 ## 부록 C. 함수 호출 순서
 
 ### C.1 자료 등록 (6.1)

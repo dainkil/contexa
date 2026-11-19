@@ -1,0 +1,82 @@
+import { Link } from '@tanstack/react-router'
+import { ChevronsUpDown, FolderKanban, LogOut } from 'lucide-react'
+import { useAuthStore } from '@/stores/auth-store'
+import useDialogState from '@/hooks/use-dialog-state'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from '@/components/ui/sidebar'
+import { SignOutDialog } from '@/components/sign-out-dialog'
+
+/** server에 "내 정보" 주소가 아직 없어서, 로그인할 때 입력한 이메일만 보여 준다. */
+export function NavUser() {
+  const { isMobile } = useSidebar()
+  const [open, setOpen] = useDialogState()
+  const email = useAuthStore((s) => s.auth.email)
+  const initial = email.charAt(0).toUpperCase() || '?'
+
+  return (
+    <>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <SidebarMenuButton
+                size='lg'
+                className='data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground'
+              >
+                <Avatar className='h-8 w-8 rounded-lg'>
+                  <AvatarFallback className='rounded-lg'>
+                    {initial}
+                  </AvatarFallback>
+                </Avatar>
+                <div className='grid flex-1 text-start text-sm leading-tight'>
+                  <span className='truncate text-xs'>{email}</span>
+                </div>
+                <ChevronsUpDown className='ms-auto size-4' />
+              </SidebarMenuButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              className='w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg'
+              side={isMobile ? 'bottom' : 'right'}
+              align='end'
+              sideOffset={4}
+            >
+              <DropdownMenuLabel className='p-0 font-normal'>
+                <div className='px-1 py-1.5 text-start text-xs'>{email}</div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link to='/projects'>
+                  <FolderKanban />
+                  프로젝트 목록
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant='destructive'
+                onClick={() => setOpen(true)}
+              >
+                <LogOut />
+                로그아웃
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarMenuItem>
+      </SidebarMenu>
+
+      <SignOutDialog open={!!open} onOpenChange={setOpen} />
+    </>
+  )
+}
