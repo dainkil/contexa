@@ -1,19 +1,29 @@
 package com.contexa.server.pipeline;
 
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.contexa.server.contract.Caller;
 import com.contexa.server.document.DocumentEvidence;
+import com.contexa.server.document.DocumentInfo;
 import com.contexa.server.document.DocumentInput;
+import com.contexa.server.document.DocumentNotFoundException;
 import com.contexa.server.document.SourceVersionRef;
+import com.contexa.server.document.Span;
+import com.contexa.server.document.VersionSummary;
 import com.contexa.server.generation.GenerationWiki;
 import com.contexa.server.identity.IdentityAccess;
 import com.contexa.server.identity.NotAllowedException;
 import com.contexa.server.job.Job;
+import com.contexa.server.job.JobNotFoundException;
 import com.contexa.server.job.JobOperation;
 import com.contexa.server.job.JobType;
 import com.contexa.server.review.ReviewImpact;
@@ -103,16 +113,105 @@ public class Pipeline {
 		return jobs.acceptResult(jobId, attemptId, leaseToken);
 	}
 
-	/** 작업 하나의 진행 상태. */
+	/** 작업 하나의 진행 상태. 볼 수 없는 작업은 없는 작업과 똑같이 거절한다. */
 	@Transactional(readOnly = true)
 	public Job getJob(Caller caller, UUID jobId) {
-		return jobs.get(caller.projectId(), jobId);
+		Job job = jobs.get(caller.projectId(), jobId);
+		if (!visibleTo(caller, List.of(job)).test(job)) {
+			throw new JobNotFoundException(jobId);
+		}
+		return job;
 	}
 
-	/** 이 프로젝트의 작업. 최근 것부터. */
+	/** 이 프로젝트에서 요청자가 볼 수 있는 작업. 최근 것부터 50개. */
 	@Transactional(readOnly = true)
 	public List<Job> listJobs(Caller caller) {
-		return jobs.list(caller.projectId(), 50);
+		List<Job> recent = jobs.list(caller.projectId(), 200);
+		return recent.stream().filter(visibleTo(caller, recent)).limit(50).toList();
+	}
+
+	/** 요청자가 읽을 수 있는 문서 목록. 최근에 올린 것부터, 가장 최근 판의 처리 상태와 함께. */
+	@Transactional(readOnly = true)
+	public List<DocumentStatus> listDocuments(Caller caller) {
+		List<DocumentInfo> documents = document.listReadable(caller);
+		Map<UUID, List<VersionStatus>> versions = versionStatuses(caller.projectId(),
+				documents.stream().map(DocumentInfo::id).toList());
+		return documents.stream().map(info -> {
+			List<VersionStatus> ofDocument = versions.getOrDefault(info.id(), List.of());
+			return new DocumentStatus(info, ofDocument.size(),
+					ofDocument.isEmpty() ? null : ofDocument.get(ofDocument.size() - 1));
+		}).toList();
+	}
+
+	/**
+	 * 문서 한 건을 연다. 판을 고르지 않으면 가장 최근 판을 연다.
+	 * 근거 발언(spanId)을 주면 그 발언이 들어 있는 판을 연다. 근거 정보에는 문서만 적혀 있고 판은 적혀 있지 않기 때문이다.
+	 *
+	 * @param versionNo 열 판 번호. null이면 가장 최근 판
+	 * @param spanId    이 발언이 들어 있는 판을 연다. versionNo와 함께 줄 수 없다
+	 * @throws DocumentNotFoundException 문서·판·발언이 없거나 읽을 수 없음. 구분하지 않는다
+	 */
+	@Transactional(readOnly = true)
+	public DocumentView openDocument(Caller caller, UUID documentId, Integer versionNo, UUID spanId) {
+		if (versionNo != null && spanId != null) {
+			throw new IllegalArgumentException("판 번호와 발언 중 하나만 줄 수 있다");
+		}
+		DocumentInfo info = document.readable(caller, documentId);
+		List<VersionStatus> versions = versionStatuses(caller.projectId(), List.of(documentId))
+				.getOrDefault(documentId, List.of());
+		Integer wanted = versionNo;
+		if (spanId != null) {
+			wanted = document.versionOfSpan(caller.projectId(), spanId)
+					.filter(ref -> ref.documentId().equals(documentId))
+					.map(SourceVersionRef::versionNo)
+					.orElseThrow(() -> new DocumentNotFoundException("발언", spanId));
+		}
+		Integer target = wanted;
+		VersionStatus opened = versions.stream()
+				.filter(v -> target == null ? v == versions.get(versions.size() - 1) : v.versionNo() == target)
+				.findFirst()
+				.orElseThrow(() -> new DocumentNotFoundException("문서의 판", documentId));
+		List<Span> spans = document.spansOf(opened.sourceVersionId());
+		String content = spans.isEmpty() ? document.readContent(opened.sourceVersionId()) : null;
+		return new DocumentView(info, versions,
+				new DocumentView.OpenedVersion(opened.sourceVersionId(), opened.versionNo(), spans, content));
+	}
+
+	/** 문서마다 판 목록(1판부터)에 자르기·뽑기 작업의 상태를 붙인다. 권한 검사는 호출한 쪽이 한다. */
+	private Map<UUID, List<VersionStatus>> versionStatuses(UUID projectId, Collection<UUID> documentIds) {
+		Map<UUID, List<VersionSummary>> versions = document.versionsOf(projectId, documentIds);
+		List<UUID> versionIds = versions.values().stream().flatMap(List::stream)
+				.map(VersionSummary::sourceVersionId).toList();
+		Map<UUID, Job> parse = new HashMap<>();
+		Map<UUID, Job> extract = new HashMap<>();
+		for (Job job : jobs.bySubjects(projectId, versionIds)) {
+			switch (job.type()) {
+				case PARSE -> parse.put(job.subjectId(), job);
+				case EXTRACT -> extract.put(job.subjectId(), job);
+				case GENERATE -> {
+				}
+			}
+		}
+		Map<UUID, List<VersionStatus>> statuses = new HashMap<>();
+		versions.forEach((documentId, list) -> statuses.put(documentId, list.stream()
+				.map(v -> new VersionStatus(v.sourceVersionId(), v.versionNo(), v.createdAt(), v.spanCount(),
+						JobBrief.of(parse.get(v.sourceVersionId())), JobBrief.of(extract.get(v.sourceVersionId()))))
+				.toList()));
+		return statuses;
+	}
+
+	/**
+	 * 요청자가 볼 수 있는 작업인가. 문서를 자르고 뽑는 작업은 그 문서를 읽을 수 있어야 보이고(남의 개인 메모는
+	 * 안 보인다), 글쓰기 작업은 요청한 사람에게만 보인다(답변도 요청한 사람만 읽는다).
+	 */
+	private Predicate<Job> visibleTo(Caller caller, Collection<Job> candidates) {
+		Set<UUID> readable = identity.readableDocumentIds(caller);
+		Map<UUID, UUID> documentOf = document.documentsOfVersions(caller.projectId(), candidates.stream()
+				.filter(job -> job.type() != JobType.GENERATE).map(Job::subjectId).toList());
+		UUID user = caller.kind() == Caller.Kind.AGENT ? null : caller.actingUser();
+		return job -> job.type() == JobType.GENERATE
+				? job.requestedBy().equals(user)
+				: readable.contains(documentOf.get(job.subjectId()));
 	}
 
 	private UUID enqueueParse(Caller caller, SourceVersionRef version) {

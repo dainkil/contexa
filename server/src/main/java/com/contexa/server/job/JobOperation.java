@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
@@ -192,6 +193,19 @@ public class JobOperation {
 		return jdbc.sql("select " + COLUMNS + " from job where project_id = :projectId"
 				+ " order by created_at desc, id limit :limit")
 				.param("projectId", projectId).param("limit", Math.max(1, Math.min(limit, 200)))
+				.query(JobOperation::mapJob).list();
+	}
+
+	/** 이 프로젝트에서 주어진 대상(문서의 판 등)에 대한 일. 오래된 것부터. */
+	@Transactional(readOnly = true)
+	public List<Job> bySubjects(UUID projectId, Collection<UUID> subjectIds) {
+		Objects.requireNonNull(projectId, "projectId");
+		if (subjectIds == null || subjectIds.isEmpty()) {
+			return List.of();
+		}
+		return jdbc.sql("select " + COLUMNS + " from job where project_id = :projectId and subject_id in (:ids)"
+				+ " order by created_at, id")
+				.param("projectId", projectId).param("ids", subjectIds)
 				.query(JobOperation::mapJob).list();
 	}
 

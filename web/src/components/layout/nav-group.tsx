@@ -177,6 +177,7 @@ function checkIsActive(href: string, item: NavItem, mainNav = false) {
   return (
     href === item.url || // /endpint?search=param
     href.split('?')[0] === item.url || // endpoint
+    (!!item.url && href.split('?')[0].startsWith(`${item.url}/`)) || // 하위 화면(문서 → 원문 뷰어)
     !!item?.items?.filter((i) => i.url === href).length || // if child nav is active
     (mainNav &&
       href.split('/')[1] !== '' &&

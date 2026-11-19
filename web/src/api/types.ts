@@ -1,7 +1,7 @@
 /**
  * server 응답 타입. 원본은 Java 쪽이다.
  *  - contract 패키지: server/src/main/java/com/contexa/server/contract
- *  - 컨트롤러 응답: identity·review·entity 패키지의 record
+ *  - 컨트롤러 응답: identity·review·entity·document·pipeline 패키지의 record
  * Java record가 바뀌면 여기도 같이 고친다. UUID는 string, Instant는 ISO 8601 string으로 온다.
  */
 
@@ -219,6 +219,109 @@ export interface ReviewResult {
 export interface Changed {
   node: NodeRef
   impacts: Impact[]
+}
+
+// ── document · job · pipeline ─────────────────────────────────
+
+/** 문서의 종류. server document/DocumentKind.java */
+export type DocumentKind =
+  | 'TRANSCRIPT'
+  | 'DOCUMENT'
+  | 'REGULATION'
+  | 'MEMO'
+  | 'ROSTER'
+
+/** PROJECT = 구성원 모두, PRIVATE = 올린 사람만(개인 메모). */
+export type Visibility = 'PROJECT' | 'PRIVATE'
+
+export type JobStatus =
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'CANCELLED'
+
+/** 새로 올리는 문서. language가 null이면 여러 언어가 섞인 문서다. */
+export interface DocumentInput {
+  title: string
+  kind: DocumentKind
+  language: string | null
+  visibility: Visibility
+  externalOk: boolean
+  content: string
+}
+
+export interface SourceVersionRef {
+  documentId: Uuid
+  sourceVersionId: Uuid
+  versionNo: number
+}
+
+/** 문서를 올린 결과: 저장된 판과 "자르기" 작업. */
+export interface IngestStarted {
+  version: SourceVersionRef
+  jobId: Uuid
+}
+
+export interface DocumentInfo {
+  id: Uuid
+  title: string
+  kind: DocumentKind
+  language: string | null
+  visibility: Visibility
+  externalOk: boolean
+  createdAt: IsoInstant
+}
+
+/** 화면에 보여 줄 작업 상태(pipeline/JobBrief.java). */
+export interface JobBrief {
+  id: Uuid
+  status: JobStatus
+  attempts: number
+  lastError: string | null
+  createdAt: IsoInstant
+  finishedAt: IsoInstant | null
+}
+
+/** 문서의 한 판과 그 판을 처리하는 작업들. parse = 발언으로 자르기, extract = 후보 뽑기. */
+export interface VersionStatus {
+  sourceVersionId: Uuid
+  versionNo: number
+  createdAt: IsoInstant
+  spanCount: number
+  parse: JobBrief | null
+  extract: JobBrief | null
+}
+
+/** 문서 목록의 한 줄. latest = 가장 최근 판. */
+export interface DocumentStatus {
+  document: DocumentInfo
+  versionCount: number
+  latest: VersionStatus | null
+}
+
+/** 발언 하나. seq는 그 판 안에서의 순서, speakerLabel은 전사문의 화자 표기 그대로. */
+export interface Span {
+  ref: NodeRef
+  projectId: Uuid
+  documentId: Uuid
+  sourceVersionId: Uuid
+  seq: number
+  speakerLabel: string | null
+  text: string
+}
+
+/** 원문 뷰어가 받는 것(pipeline/DocumentView.java). */
+export interface DocumentView {
+  document: DocumentInfo
+  versions: VersionStatus[]
+  opened: {
+    sourceVersionId: Uuid
+    versionNo: number
+    spans: Span[]
+    /** 아직 발언으로 자르지 않았을 때만 원문 전체. */
+    content: string | null
+  }
 }
 
 /** server의 오류 응답 본문(ApiExceptionHandler). */

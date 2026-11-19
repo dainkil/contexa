@@ -5,6 +5,7 @@ import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -12,6 +13,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -22,6 +24,7 @@ import com.contexa.server.contract.Caller;
 import com.contexa.server.contract.NodeKey;
 import com.contexa.server.contract.NodeRef;
 import com.contexa.server.contract.NodeType;
+import com.contexa.server.identity.DocumentAccess;
 import com.contexa.server.identity.IdentityAccess;
 import com.contexa.server.identity.NotAllowedException;
 
@@ -77,12 +80,13 @@ public class DocumentEvidence {
 	/**
 	 * 이미 있는 문서의 새 판을 올린다. 이전 판은 덮어쓰지 않는다.
 	 * 내용이 이전 판 중 하나와 똑같으면 새 판을 만들지 않고 거절한다.
+	 * 읽을 수 없는 문서(남의 개인 메모)는 없는 문서와 똑같이 거절한다.
 	 */
 	@Transactional
 	public SourceVersionRef addVersion(Caller caller, UUID documentId, String content) {
 		requireMember(caller);
 		requireContent(content);
-		requireDocument(caller.projectId(), documentId);
+		requireReadable(caller, documentId);
 		boolean duplicate = jdbc.sql("""
 				select count(*) from source_version where document_id = :documentId and content_hash = :hash
 				""")
@@ -170,6 +174,105 @@ public class DocumentEvidence {
 			refs.add(new NodeRef(NodeType.SPAN, id, 1));
 		}
 		return refs;
+	}
+
+	/** 요청자가 읽을 수 있는 이 프로젝트의 문서. 최근에 올린 것부터. */
+	@Transactional(readOnly = true)
+	public List<DocumentInfo> listReadable(Caller caller) {
+		Objects.requireNonNull(caller, "caller");
+		Map<UUID, DocumentAccess> readable = identity.readableDocuments(caller);
+		if (readable.isEmpty()) {
+			return List.of();
+		}
+		return jdbc.sql("""
+				select id, title, kind, language, created_at from document
+				 where project_id = :projectId and id in (:ids)
+				 order by created_at desc, id
+				""")
+				.param("projectId", caller.projectId()).param("ids", readable.keySet())
+				.query((rs, n) -> mapInfo(rs, readable))
+				.list();
+	}
+
+	/**
+	 * 요청자가 읽을 수 있는 문서 한 건.
+	 *
+	 * @throws DocumentNotFoundException 없거나, 다른 프로젝트 것이거나, 읽을 수 없음(남의 개인 메모). 셋을 구분하지 않는다
+	 */
+	@Transactional(readOnly = true)
+	public DocumentInfo readable(Caller caller, UUID documentId) {
+		Objects.requireNonNull(caller, "caller");
+		DocumentAccess access = identity.readableDocuments(caller).get(documentId);
+		if (access == null) {
+			throw new DocumentNotFoundException("문서", documentId);
+		}
+		return jdbc.sql("select id, title, kind, language, created_at from document"
+				+ " where id = :id and project_id = :projectId")
+				.param("id", documentId).param("projectId", caller.projectId())
+				.query((rs, n) -> mapInfo(rs, Map.of(documentId, access)))
+				.optional()
+				.orElseThrow(() -> new DocumentNotFoundException("문서", documentId));
+	}
+
+	/** 문서마다 판 목록(1판부터). 권한 검사는 호출한 쪽이 한다. */
+	@Transactional(readOnly = true)
+	public Map<UUID, List<VersionSummary>> versionsOf(UUID projectId, Collection<UUID> documentIds) {
+		Objects.requireNonNull(projectId, "projectId");
+		Map<UUID, List<VersionSummary>> versions = new HashMap<>();
+		if (documentIds == null || documentIds.isEmpty()) {
+			return versions;
+		}
+		record Row(UUID documentId, VersionSummary version) {
+		}
+		jdbc.sql("""
+				select v.document_id, v.id, v.version_no, v.created_at,
+				       (select count(*) from span s where s.source_version_id = v.id) as span_count
+				  from source_version v join document d on d.id = v.document_id
+				 where d.project_id = :projectId and v.document_id in (:ids)
+				 order by v.document_id, v.version_no
+				""")
+				.param("projectId", projectId).param("ids", documentIds)
+				.query((rs, n) -> new Row(rs.getObject("document_id", UUID.class),
+						new VersionSummary(rs.getObject("id", UUID.class), rs.getInt("version_no"),
+								rs.getObject("created_at", OffsetDateTime.class).toInstant(), rs.getInt("span_count"))))
+				.list()
+				.forEach(row -> versions.computeIfAbsent(row.documentId(), id -> new ArrayList<>()).add(row.version()));
+		return versions;
+	}
+
+	/** 발언이 들어 있는 문서와 판. 이 프로젝트에 없는 발언이면 빈 값. 권한 검사는 호출한 쪽이 한다. */
+	@Transactional(readOnly = true)
+	public Optional<SourceVersionRef> versionOfSpan(UUID projectId, UUID spanId) {
+		return jdbc.sql("""
+				select s.document_id, s.source_version_id, v.version_no
+				  from span s join source_version v on v.id = s.source_version_id
+				 where s.id = :id and s.project_id = :projectId
+				""")
+				.param("id", spanId).param("projectId", projectId)
+				.query((rs, n) -> new SourceVersionRef(rs.getObject("document_id", UUID.class),
+						rs.getObject("source_version_id", UUID.class), rs.getInt("version_no")))
+				.optional();
+	}
+
+	/** 판마다 그 판이 속한 문서. 이 프로젝트에 없는 판은 결과에서 빠진다. */
+	@Transactional(readOnly = true)
+	public Map<UUID, UUID> documentsOfVersions(UUID projectId, Collection<UUID> sourceVersionIds) {
+		Objects.requireNonNull(projectId, "projectId");
+		Map<UUID, UUID> documents = new HashMap<>();
+		if (sourceVersionIds == null || sourceVersionIds.isEmpty()) {
+			return documents;
+		}
+		record Row(UUID versionId, UUID documentId) {
+		}
+		jdbc.sql("""
+				select v.id, v.document_id from source_version v join document d on d.id = v.document_id
+				 where d.project_id = :projectId and v.id in (:ids)
+				""")
+				.param("projectId", projectId).param("ids", sourceVersionIds)
+				.query((rs, n) -> new Row(rs.getObject("id", UUID.class), rs.getObject("document_id", UUID.class)))
+				.list()
+				.forEach(row -> documents.put(row.versionId(), row.documentId()));
+		return documents;
 	}
 
 	/** 이 프로젝트의 발언을 읽는다. 없는 발언은 결과에서 빠진다. 권한 검사는 호출한 쪽이 한다. */
@@ -263,10 +366,10 @@ public class DocumentEvidence {
 		}
 	}
 
-	private void requireDocument(UUID projectId, UUID documentId) {
+	private void requireReadable(Caller caller, UUID documentId) {
 		boolean exists = jdbc.sql("select count(*) from document where id = :id and project_id = :projectId")
-				.param("id", documentId).param("projectId", projectId).query(Long.class).single() > 0;
-		if (!exists) {
+				.param("id", documentId).param("projectId", caller.projectId()).query(Long.class).single() > 0;
+		if (!exists || !identity.canRead(caller, documentId)) {
 			throw new DocumentNotFoundException("문서", documentId);
 		}
 	}
@@ -284,6 +387,14 @@ public class DocumentEvidence {
 		} catch (GeneralSecurityException e) {
 			throw new IllegalStateException(e);
 		}
+	}
+
+	private static DocumentInfo mapInfo(ResultSet rs, Map<UUID, DocumentAccess> access) throws SQLException {
+		UUID id = rs.getObject("id", UUID.class);
+		DocumentAccess acl = access.get(id);
+		return new DocumentInfo(id, rs.getString("title"), DocumentKind.valueOf(rs.getString("kind")),
+				rs.getString("language"), acl.visibility(), acl.externalOk(),
+				rs.getObject("created_at", OffsetDateTime.class).toInstant());
 	}
 
 	private static Span mapSpan(ResultSet rs, int rowNum) throws SQLException {

@@ -18,6 +18,7 @@ import com.contexa.server.contract.NodeRef;
 import com.contexa.server.contract.NodeType;
 import com.contexa.server.identity.IdentityAccess;
 import com.contexa.server.identity.NotAllowedException;
+import com.contexa.server.identity.Role;
 import com.contexa.server.identity.Visibility;
 
 /** 자료실: 문서를 올리고, 판을 쌓고, 발언으로 자르고, 정정한다. 테스트마다 트랜잭션을 되돌린다. */
@@ -85,6 +86,20 @@ class DocumentEvidenceTest {
 				.isInstanceOf(IllegalStateException.class);
 		assertThatThrownBy(() -> document.addVersion(Fixtures.newOwner(identity), first.documentId(), "남의 문서"))
 				.isInstanceOf(DocumentNotFoundException.class);
+	}
+
+	@Test
+	void 개인_메모에는_주인만_새_판을_올릴_수_있다() {
+		Caller member = Fixtures.newMember(identity, owner, Role.MEMBER);
+		SourceVersionRef memo = document.registerDocument(owner,
+				new DocumentInput("내 메모", DocumentKind.MEMO, "ko", Visibility.PRIVATE, false, "인쇄소 견적 메모"));
+
+		assertThatThrownBy(() -> document.addVersion(member, memo.documentId(), "남이 덮어쓴 내용"))
+				.isInstanceOf(DocumentNotFoundException.class);
+		assertThat(document.addVersion(owner, memo.documentId(), "인쇄소 견적 메모 (수정)").versionNo()).isEqualTo(2);
+		// 구성원 모두가 읽는 문서는 구성원 누구나 새 판을 올린다
+		assertThat(document.addVersion(member, first.documentId(), "민지: 예산 승인 뒤 인쇄합니다.").versionNo())
+				.isEqualTo(2);
 	}
 
 	@Test

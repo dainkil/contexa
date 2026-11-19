@@ -7,10 +7,12 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -293,11 +295,20 @@ public class IdentityAccess {
 	 */
 	@Transactional(readOnly = true)
 	public Set<UUID> readableDocumentIds(Caller caller) {
+		return new HashSet<>(readableDocuments(caller).keySet());
+	}
+
+	/** 이 요청자가 읽을 수 있는 문서와 각 문서의 공개 범위. 규칙은 {@link #readableDocumentIds}와 같다. */
+	@Transactional(readOnly = true)
+	public Map<UUID, DocumentAccess> readableDocuments(Caller caller) {
 		Objects.requireNonNull(caller, "caller");
 		boolean external = caller.audience() == Caller.Audience.EXTERNAL;
 		UUID user = caller.kind() == Caller.Kind.AGENT ? null : caller.actingUser();
-		return new HashSet<>(jdbc.sql("""
-				select document_id from document_acl
+		record Row(UUID documentId, DocumentAccess access) {
+		}
+		Map<UUID, DocumentAccess> documents = new HashMap<>();
+		jdbc.sql("""
+				select document_id, visibility, external_ok from document_acl
 				 where project_id = :projectId
 				   and (visibility = 'PROJECT' or (:external = false and owner_id = :user))
 				   and (:external = false or external_ok)
@@ -305,8 +316,11 @@ public class IdentityAccess {
 				.param("projectId", caller.projectId())
 				.param("external", external)
 				.param("user", user)
-				.query((rs, n) -> rs.getObject("document_id", UUID.class))
-				.list());
+				.query((rs, n) -> new Row(rs.getObject("document_id", UUID.class), new DocumentAccess(
+						Visibility.valueOf(rs.getString("visibility")), rs.getBoolean("external_ok"))))
+				.list()
+				.forEach(row -> documents.put(row.documentId(), row.access()));
+		return documents;
 	}
 
 	@Transactional(readOnly = true)
