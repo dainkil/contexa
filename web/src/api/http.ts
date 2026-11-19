@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * server로 가는 모든 요청이 지나는 인스턴스. 화면 컴포넌트는 이것을 직접 쓰지 않고
- * contextClient·reviewClient·authClient만 쓴다.
+ * contextClient·reviewClient·authClient·documentClient만 쓴다.
  *
  * 개발 중에는 Vite가 /api를 127.0.0.1:8090으로 프록시한다(vite.config.ts).
  * 401 처리(로그아웃 → /sign-in)는 main.tsx의 QueryClient에서 한 곳으로 한다.
