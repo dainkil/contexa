@@ -1,6 +1,10 @@
 import { AxiosError } from 'axios'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { handleServerError } from './handle-server-error'
+import {
+  GENERIC_ERROR_MESSAGE,
+  NETWORK_ERROR_MESSAGE,
+  handleServerError,
+} from './handle-server-error'
 
 const toastError = vi.hoisted(() => vi.fn())
 
@@ -14,53 +18,48 @@ beforeEach(() => {
   vi.mocked(toastError).mockClear()
 })
 
+function axiosErrorWith(status: number, data: unknown) {
+  const error = new AxiosError('Request failed')
+  error.response = { status, data } as AxiosError['response']
+  return error
+}
+
 describe('handleServerError', () => {
-  it('shows a generic message when the error is not recognised', () => {
-    handleServerError(new Error('network'))
+  it('shows the generic message when the error is not recognised', () => {
+    handleServerError(new Error('boom'))
 
-    expect(toastError).toHaveBeenCalledWith('Something went wrong!')
+    expect(toastError).toHaveBeenCalledWith(GENERIC_ERROR_MESSAGE)
   })
 
-  it('maps a plain object with status 204 to the no-content message', () => {
-    handleServerError({ status: 204 })
+  it('shows the server message from { error, message }', () => {
+    handleServerError(
+      axiosErrorWith(400, {
+        error: 'BAD_REQUEST',
+        message: '이미 가입된 이메일이다',
+      })
+    )
 
-    expect(toastError).toHaveBeenCalledWith('No content.')
+    expect(toastError).toHaveBeenCalledWith('이미 가입된 이메일이다')
   })
 
-  it('prefers the API title when the error is an Axios error with response data', () => {
-    const error = new AxiosError('Bad request')
-    error.response = {
-      status: 422,
-      data: { title: 'Validation failed' },
-    } as AxiosError['response']
+  it('falls back to the generic message when the body has no message', () => {
+    handleServerError(axiosErrorWith(500, {}))
 
-    handleServerError(error)
-
-    expect(toastError).toHaveBeenCalledWith('Validation failed')
+    expect(toastError).toHaveBeenCalledWith(GENERIC_ERROR_MESSAGE)
   })
 
-  it('falls back to the generic message when Axios response has no data.title', () => {
-    const error = new AxiosError('Request failed')
-    error.response = {
-      status: 500,
-      data: {},
-    } as AxiosError['response']
+  it('falls back to the generic message when the message is empty', () => {
+    handleServerError(
+      axiosErrorWith(400, { error: 'BAD_REQUEST', message: '' })
+    )
 
-    handleServerError(error)
-
-    expect(toastError).toHaveBeenCalledWith('Something went wrong!')
+    expect(toastError).toHaveBeenCalledWith(GENERIC_ERROR_MESSAGE)
   })
 
-  it('falls back to the generic message when Axios data.title is an empty string', () => {
-    const error = new AxiosError('Bad request')
-    error.response = {
-      status: 400,
-      data: { title: '' },
-    } as AxiosError['response']
+  it('says the server is unreachable when there is no response', () => {
+    handleServerError(new AxiosError('Network Error'))
 
-    handleServerError(error)
-
-    expect(toastError).toHaveBeenCalledWith('Something went wrong!')
+    expect(toastError).toHaveBeenCalledWith(NETWORK_ERROR_MESSAGE)
   })
 
   it('logs the error to the console in development', () => {
@@ -69,22 +68,17 @@ describe('handleServerError', () => {
 
     handleServerError(err)
 
-    expect(log).toHaveBeenCalledTimes(1)
     expect(log).toHaveBeenCalledWith(err)
-
     log.mockRestore()
   })
 
   it('does not log the error to the console in production', () => {
     vi.stubEnv('DEV', false)
-
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const err = new Error('not logged')
 
-    handleServerError(err)
+    handleServerError(new Error('not logged'))
 
     expect(log).not.toHaveBeenCalled()
-
     log.mockRestore()
   })
 })

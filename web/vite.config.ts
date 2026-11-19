@@ -21,6 +21,12 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    // server(Spring Boot)는 127.0.0.1:8090에만 붙어 있다. 같은 출처로 보이게 프록시한다.
+    proxy: {
+      '/api': 'http://127.0.0.1:8090',
+    },
+  },
   test: {
     silent: 'passed-only',
     unstubEnvs: true,

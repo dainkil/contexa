@@ -1,29 +1,30 @@
 import { AxiosError } from 'axios'
 import { toast } from 'sonner'
 
+export const GENERIC_ERROR_MESSAGE = '요청을 처리하지 못했습니다.'
+export const NETWORK_ERROR_MESSAGE =
+  'server에 연결할 수 없습니다. server가 켜져 있는지 확인하세요.'
+
+/**
+ * server 오류를 사용자에게 보여 줄 문장으로 바꾼다.
+ * server(ApiExceptionHandler)는 { error: 'BAD_REQUEST' 등, message: '사람이 읽을 문장' }을 돌려준다.
+ */
+export function serverErrorMessage(error: unknown): string {
+  if (error instanceof AxiosError) {
+    if (!error.response) return NETWORK_ERROR_MESSAGE
+    const data: unknown = error.response.data
+    if (data && typeof data === 'object' && 'message' in data) {
+      const message = (data as { message: unknown }).message
+      if (typeof message === 'string' && message.length > 0) return message
+    }
+  }
+  return GENERIC_ERROR_MESSAGE
+}
+
 export function handleServerError(error: unknown) {
   if (import.meta.env.DEV) {
     // eslint-disable-next-line no-console
     console.log(error)
   }
-
-  let errMsg = 'Something went wrong!'
-
-  if (
-    error &&
-    typeof error === 'object' &&
-    'status' in error &&
-    Number(error.status) === 204
-  ) {
-    errMsg = 'No content.'
-  }
-
-  if (error instanceof AxiosError) {
-    const title = error.response?.data?.title
-    if (typeof title === 'string' && title.length > 0) {
-      errMsg = title
-    }
-  }
-
-  toast.error(errMsg)
+  toast.error(serverErrorMessage(error))
 }

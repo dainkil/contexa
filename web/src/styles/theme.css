@@ -6,7 +6,8 @@
   --card-foreground: oklch(0.129 0.042 264.695);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(0.208 0.042 265.755);
+  /* Contexa: 흰 바탕 + 짙은 네이비 */
+  --primary: oklch(0.29 0.09 264);
   --primary-foreground: oklch(0.984 0.003 247.858);
   --secondary: oklch(0.968 0.007 247.896);
   --secondary-foreground: oklch(0.208 0.042 265.755);
@@ -23,6 +24,10 @@
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
+
+  /* 근거 하이라이트(노랑) */
+  --evidence: oklch(0.94 0.11 98);
+  --evidence-foreground: oklch(0.129 0.042 264.695);
 
   --sidebar: var(--background);
   --sidebar-foreground: var(--foreground);
@@ -58,11 +63,15 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
+
+  --evidence: oklch(0.45 0.09 95);
+  --evidence-foreground: oklch(0.984 0.003 247.858);
 }
 
 @theme inline {
-  --font-inter: 'Inter', 'sans-serif';
-  --font-manrope: 'Manrope', 'sans-serif';
+  /* 한국어·아랍어 글자는 라틴 글꼴에 없으므로 Noto로 넘긴다 */
+  --font-inter: 'Inter', 'Noto Sans KR', 'Noto Sans Arabic', sans-serif;
+  --font-manrope: 'Manrope', 'Noto Sans KR', 'Noto Sans Arabic', sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -91,6 +100,8 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-evidence: var(--evidence);
+  --color-evidence-foreground: var(--evidence-foreground);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
