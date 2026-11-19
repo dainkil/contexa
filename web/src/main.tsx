@@ -18,6 +18,23 @@ import { routeTree } from './routeTree.gen'
 // Styles
 import './styles/index.css'
 
+/**
+ * 토큰이 만료·폐기돼 server가 401을 주면 세션을 비우고 로그인으로 보낸다.
+ * 토큰이 없는 상태의 401(로그인 실패 등)은 폼이 직접 보여 준다.
+ */
+function signOutOnUnauthorized(error: unknown) {
+  if (!(error instanceof AxiosError) || error.response?.status !== 401) {
+    return false
+  }
+  if (!useAuthStore.getState().auth.accessToken) return false
+  toast.error('로그인이 만료됐습니다. 다시 로그인하세요.')
+  useAuthStore.getState().auth.reset()
+  queryClient.clear()
+  const redirect = `${router.history.location.href}`
+  router.navigate({ to: '/sign-in', search: { redirect } })
+  return true
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -30,7 +47,7 @@ const queryClient = new QueryClient({
 
         return !(
           error instanceof AxiosError &&
-          [401, 403].includes(error.response?.status ?? 0)
+          [400, 401, 403, 404].includes(error.response?.status ?? 0)
         )
       },
       refetchOnWindowFocus: import.meta.env.PROD,
@@ -38,36 +55,15 @@ const queryClient = new QueryClient({
     },
     mutations: {
       onError: (error) => {
+        if (signOutOnUnauthorized(error)) return
         handleServerError(error)
-
-        if (error instanceof AxiosError) {
-          if (error.response?.status === 304) {
-            toast.error('Content not modified!')
-          }
-        }
       },
     },
   },
   queryCache: new QueryCache({
     onError: (error) => {
-      if (error instanceof AxiosError) {
-        if (error.response?.status === 401) {
-          toast.error('Session expired!')
-          useAuthStore.getState().auth.reset()
-          const redirect = `${router.history.location.href}`
-          router.navigate({ to: '/sign-in', search: { redirect } })
-        }
-        if (error.response?.status === 500) {
-          toast.error('Internal Server Error!')
-          // Only navigate to error page in production to avoid disrupting HMR in development
-          if (import.meta.env.PROD) {
-            router.navigate({ to: '/500' })
-          }
-        }
-        if (error.response?.status === 403) {
-          // router.navigate("/forbidden", { replace: true });
-        }
-      }
+      // 그 밖의 조회 오류는 화면이 그 자리에서 보여 준다.
+      signOutOnUnauthorized(error)
     },
   }),
 })

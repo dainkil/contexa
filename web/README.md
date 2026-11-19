@@ -1,119 +1,37 @@
-# Shadcn Admin Dashboard
+# Contexa web
 
-Admin Dashboard UI crafted with Shadcn and Vite. Built with responsiveness and accessibility in mind.
+Contexa 웹 화면. React 19 · TypeScript · Vite · TanStack Router/Query · Tailwind 4 · shadcn/ui.
 
-![alt text](public/images/shadcn-admin.png)
+## 실행
 
-[![Sponsored by Clerk](https://img.shields.io/badge/Sponsored%20by-Clerk-5b6ee1?logo=clerk)](https://go.clerk.com/GttUAaK)
+```sh
+# 레포 루트에서 DB, server를 먼저 띄운다
+docker compose up -d db
+(cd server && ./gradlew bootRun)      # 127.0.0.1:8090
 
-I've been creating dashboard UIs at work and for my personal projects. I always wanted to make a reusable collection of dashboard UI for future projects; and here it is now. While I've created a few custom components, some of the code is directly adapted from ShadcnUI examples.
-
-> This is not a starter project (template) though. I'll probably make one in the future.
-
-## Features
-
-- Light/dark mode
-- Responsive
-- Accessible
-- With built-in Sidebar component
-- Global search command
-- 10+ pages
-- Extra custom components
-- RTL support
-
-<details>
-<summary>Customized Components (click to expand)</summary>
-
-This project uses Shadcn UI components, but some have been slightly modified for better RTL (Right-to-Left) support and other improvements. These customized components differ from the original Shadcn UI versions.
-
-If you want to update components using the Shadcn CLI (e.g., `npx shadcn@latest add <component>`), it's generally safe for non-customized components. For the listed customized ones, you may need to manually merge changes to preserve the project's modifications and avoid overwriting RTL support or other updates.
-
-> If you don't require RTL support, you can safely update the 'RTL Updated Components' via the Shadcn CLI, as these changes are primarily for RTL compatibility. The 'Modified Components' may have other customizations to consider.
-
-### Modified Components
-
-- scroll-area
-- sonner
-- separator
-
-### RTL Updated Components
-
-- alert-dialog
-- calendar
-- command
-- dialog
-- dropdown-menu
-- select
-- table
-- sheet
-- sidebar
-- switch
-
-**Notes:**
-
-- **Modified Components**: These have general updates, potentially including RTL adjustments.
-- **RTL Updated Components**: These have specific changes for RTL language support (e.g., layout, positioning).
-- For implementation details, check the source files in `src/components/ui/`.
-- All other Shadcn UI components in the project are standard and can be safely updated via the CLI.
-
-</details>
-
-## Tech Stack
-
-**UI:** [ShadcnUI](https://ui.shadcn.com) (TailwindCSS + RadixUI)
-
-**Build Tool:** [Vite](https://vitejs.dev/)
-
-**Routing:** [TanStack Router](https://tanstack.com/router/latest)
-
-**Type Checking:** [TypeScript](https://www.typescriptlang.org/)
-
-**Linting/Formatting:** [ESLint](https://eslint.org/) & [Prettier](https://prettier.io/)
-
-**Icons:** [Lucide Icons](https://lucide.dev/icons/), [Tabler Icons](https://tabler.io/icons) (Brand icons only)
-
-**Auth (partial):** [Clerk](https://go.clerk.com/GttUAaK)
-
-## Run Locally
-
-Clone the project
-
-```bash
-  git clone https://github.com/satnaing/shadcn-admin.git
+# web
+pnpm install
+pnpm dev                              # http://localhost:5173, /api → 127.0.0.1:8090 프록시
+pnpm build                            # tsc + vite build
+pnpm lint
+pnpm test:browser:install             # 처음 한 번 (Playwright Chromium)
+pnpm test
 ```
 
-Go to the project directory
+## 구조
 
-```bash
-  cd shadcn-admin
-```
+- `src/api/` — server 호출은 여기만 한다.
+  - `contextClient.ts`: 읽기(`/context/*`). 화면은 돌려받은 `ContextPacket`만 그린다.
+  - `reviewClient.ts`: 바꾸는 동작(확인·정정·보류·거절, 업무 상태 등)과 검토함 조회.
+  - `authClient.ts`: 가입·로그인·프로젝트.
+  - `types.ts`: server(Java) 응답 타입을 옮긴 것. 원본은 Java 쪽이다.
+- `src/routes/` — 파일 기반 라우트. `routeTree.gen.ts`는 Vite 플러그인이 만든다.
+  - `(auth)/sign-in`, `(auth)/sign-up`
+  - `_authenticated/projects` — 프로젝트 목록·만들기
+  - `_authenticated/p/$projectId/{documents,reviews,context,briefing}`
+- `src/stores/auth-store.ts` — 로그인 토큰. 지금은 sessionStorage(임시), 쿠키 로그인으로 바꿀 예정.
 
-Install dependencies
+## 출처
 
-```bash
-  pnpm install
-```
-
-Start the server
-
-```bash
-  pnpm run dev
-```
-
-## Sponsoring this project ❤️
-
-If you find this project helpful or use this in your own work, consider [sponsoring me](https://github.com/sponsors/satnaing) to support development and maintenance. You can [buy me a coffee](https://buymeacoffee.com/satnaing) as well. Don’t worry, every penny helps. Thank you! 🙏
-
-For questions or sponsorship inquiries, feel free to reach out at [satnaingdev@gmail.com](mailto:satnaingdev@gmail.com).
-
-### Current Sponsor
-
-- [Clerk](https://go.clerk.com/GttUAaK) - authentication and user management for the modern web
-
-## Author
-
-Crafted with 🤍 by [@satnaing](https://github.com/satnaing)
-
-## License
-
-Licensed under the [MIT License](https://choosealicense.com/licenses/mit/)
+[satnaing/shadcn-admin](https://github.com/satnaing/shadcn-admin) (MIT, 커밋 `e16c87f`)을 바탕으로
+데모 화면과 Clerk 연동을 걷어내고 Contexa 화면을 붙였다. 원 저작권 표시는 `LICENSE`에 있다.

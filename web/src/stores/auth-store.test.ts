@@ -1,4 +1,3 @@
-import { clearCookies } from '@/test-utils/cookies'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 async function importAuthStore() {
@@ -6,71 +5,56 @@ async function importAuthStore() {
   return useAuthStore
 }
 
-const sampleUser = {
-  accountNo: 'ACC-1',
-  email: 'user@example.com',
-  role: ['user'],
-  exp: 1_700_000_000,
-}
-
 describe('useAuthStore', () => {
   beforeEach(() => {
-    clearCookies()
+    sessionStorage.clear()
     vi.resetModules()
   })
 
-  it('starts with an empty access token when nothing is persisted', async () => {
+  it('starts signed out when nothing is stored', async () => {
     const useAuthStore = await importAuthStore()
 
     expect(useAuthStore.getState().auth.accessToken).toBe('')
-    expect(useAuthStore.getState().auth.user).toBeNull()
+    expect(useAuthStore.getState().auth.email).toBe('')
   })
 
-  it('persists access token so a new store instance reads it back', async () => {
+  it('keeps the session in sessionStorage so a reload reads it back', async () => {
     const useAuthStore = await importAuthStore()
-    useAuthStore.getState().auth.setAccessToken('session-token')
+    useAuthStore.getState().auth.signIn('session-token', 'user@example.com')
 
     vi.resetModules()
-    const useAuthStoreAfterReload = await importAuthStore()
+    const reloaded = await importAuthStore()
 
-    expect(useAuthStoreAfterReload.getState().auth.accessToken).toBe(
-      'session-token'
-    )
+    expect(reloaded.getState().auth.accessToken).toBe('session-token')
+    expect(reloaded.getState().auth.email).toBe('user@example.com')
   })
 
-  it('clears persisted access token when resetAccessToken is used', async () => {
+  it('reset clears the token, the email and the stored session', async () => {
     const useAuthStore = await importAuthStore()
-    useAuthStore.getState().auth.setAccessToken('to-clear')
-    useAuthStore.getState().auth.resetAccessToken()
-
-    vi.resetModules()
-    const useAuthStoreAfterReload = await importAuthStore()
-
-    expect(useAuthStoreAfterReload.getState().auth.accessToken).toBe('')
-  })
-
-  it('updates the signed-in user via setUser', async () => {
-    const useAuthStore = await importAuthStore()
-
-    useAuthStore.getState().auth.setUser({ ...sampleUser })
-
-    expect(useAuthStore.getState().auth.user).toEqual(sampleUser)
-  })
-
-  it('reset clears user and access token and drops persistence', async () => {
-    const useAuthStore = await importAuthStore()
-    useAuthStore.getState().auth.setAccessToken('will-be-cleared')
-    useAuthStore.getState().auth.setUser({ ...sampleUser })
+    useAuthStore.getState().auth.signIn('will-be-cleared', 'user@example.com')
 
     useAuthStore.getState().auth.reset()
 
-    expect(useAuthStore.getState().auth.user).toBeNull()
     expect(useAuthStore.getState().auth.accessToken).toBe('')
+    expect(useAuthStore.getState().auth.email).toBe('')
 
     vi.resetModules()
-    const useAuthStoreAfterReload = await importAuthStore()
+    const reloaded = await importAuthStore()
+    expect(reloaded.getState().auth.accessToken).toBe('')
+  })
 
-    expect(useAuthStoreAfterReload.getState().auth.user).toBeNull()
-    expect(useAuthStoreAfterReload.getState().auth.accessToken).toBe('')
+  it('ignores a corrupted stored value', async () => {
+    sessionStorage.setItem('contexa.session', '{not json')
+
+    const useAuthStore = await importAuthStore()
+
+    expect(useAuthStore.getState().auth.accessToken).toBe('')
+  })
+
+  it('does not write the token to cookies', async () => {
+    const useAuthStore = await importAuthStore()
+    useAuthStore.getState().auth.signIn('secret-token', 'user@example.com')
+
+    expect(document.cookie).not.toContain('secret-token')
   })
 })

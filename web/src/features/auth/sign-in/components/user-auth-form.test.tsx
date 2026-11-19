@@ -1,133 +1,128 @@
+import { AxiosError } from 'axios'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, type RenderResult } from 'vitest-browser-react'
 import { type Locator, userEvent } from 'vitest/browser'
 import { UserAuthForm } from './user-auth-form'
 
-const FORM_MESSAGES = {
-  emailEmpty: 'Please enter your email.',
-  passwordEmpty: 'Please enter your password.',
-  passwordShort: 'Password must be at least 7 characters long.',
-} as const
-
 const navigate = vi.fn()
-const setUserMock = vi.fn()
-const setAccessTokenMock = vi.fn()
+const signIn = vi.fn()
+const login = vi.hoisted(() => vi.fn())
+const toastError = vi.hoisted(() => vi.fn())
+
+vi.mock('@/api/authClient', () => ({ login }))
+
+vi.mock('sonner', () => ({ toast: { error: toastError } }))
 
 vi.mock('@/stores/auth-store', () => ({
-  useAuthStore: () => ({
-    auth: {
-      setUser: setUserMock,
-      setAccessToken: setAccessTokenMock,
-    },
-  }),
+  useAuthStore: () => ({ auth: { signIn } }),
 }))
 
 vi.mock('@tanstack/react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-router')>()
-  return {
-    ...actual,
-    useNavigate: () => navigate,
-    Link: ({
-      children,
-      to,
-      className,
-      ...rest
-    }: {
-      children?: React.ReactNode
-      to: string
-      className?: string
-    }) => (
-      <a href={to} className={className} {...rest}>
-        {children}
-      </a>
-    ),
-  }
+  return { ...actual, useNavigate: () => navigate }
 })
 
-vi.mock('@/lib/utils', async (orig) => ({
-  ...(await orig()),
-  sleep: vi.fn(() => Promise.resolve()),
-}))
-
 describe('UserAuthForm', () => {
-  describe('Rendering without redirectTo', () => {
-    let screen: RenderResult
-    let emailInput: Locator
-    let passwordInput: Locator
-    let signInButton: Locator
-    let forgotPasswordLink: Locator
+  let screen: RenderResult
+  let emailInput: Locator
+  let passwordInput: Locator
+  let submitButton: Locator
 
-    beforeEach(async () => {
-      vi.clearAllMocks()
-      screen = await render(<UserAuthForm />)
-      emailInput = screen.getByRole('textbox', { name: /^Email$/i })
-      passwordInput = screen.getByLabelText(/^Password$/i)
-      signInButton = screen.getByRole('button', { name: /^Sign in$/i })
-      forgotPasswordLink = screen.getByText(/^Forgot password\?$/i)
-    })
+  async function renderForm(redirectTo?: string) {
+    screen = await render(<UserAuthForm redirectTo={redirectTo} />)
+    emailInput = screen.getByRole('textbox', { name: /^이메일$/ })
+    passwordInput = screen.getByLabelText(/^비밀번호$/)
+    submitButton = screen.getByRole('button', { name: /^로그인$/ })
+  }
 
-    it('renders fields, submit button, and forgot password link', async () => {
-      await expect.element(emailInput).toBeInTheDocument()
-      await expect.element(passwordInput).toBeInTheDocument()
-      await expect.element(signInButton).toBeInTheDocument()
-      await expect.element(forgotPasswordLink).toBeInTheDocument()
-    })
-
-    it('shows validation messages when submitting empty form', async () => {
-      await userEvent.click(signInButton)
-
-      await expect
-        .element(screen.getByText(FORM_MESSAGES.emailEmpty))
-        .toBeInTheDocument()
-      await expect
-        .element(screen.getByText(FORM_MESSAGES.passwordEmpty))
-        .toBeInTheDocument()
-    })
-
-    it('authenticates and navigates to default route on success', async () => {
-      await userEvent.fill(emailInput, 'a@b.com')
-      await userEvent.fill(passwordInput, '1234567')
-
-      await userEvent.click(signInButton)
-
-      await vi.waitFor(() => expect(setUserMock).toHaveBeenCalledOnce())
-      expect(setUserMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          email: 'a@b.com',
-          accountNo: expect.any(String),
-          role: expect.any(Array),
-          exp: expect.any(Number),
-        })
-      )
-      expect(setAccessTokenMock).toHaveBeenCalledOnce()
-      expect(setAccessTokenMock).toHaveBeenCalledWith('mock-access-token')
-
-      await vi.waitFor(() =>
-        expect(navigate).toHaveBeenCalledWith({ to: '/', replace: true })
-      )
-    })
+  beforeEach(() => {
+    vi.clearAllMocks()
   })
 
-  it('navigates to redirectTo when provided', async () => {
-    vi.clearAllMocks()
+  it('shows validation messages when submitting an empty form', async () => {
+    await renderForm()
 
-    const { getByRole, getByLabelText } = await render(
-      <UserAuthForm redirectTo='/settings' />
+    await userEvent.click(submitButton)
+
+    await expect
+      .element(screen.getByText('이메일을 입력하세요.'))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('비밀번호를 입력하세요.'))
+      .toBeInTheDocument()
+    expect(login).not.toHaveBeenCalled()
+  })
+
+  it('logs in, stores the token and goes to the project list', async () => {
+    login.mockResolvedValue('server-token')
+    await renderForm()
+
+    await userEvent.fill(emailInput, 'a@b.com')
+    await userEvent.fill(passwordInput, 'password1')
+    await userEvent.click(submitButton)
+
+    await vi.waitFor(() =>
+      expect(login).toHaveBeenCalledWith({
+        email: 'a@b.com',
+        password: 'password1',
+      })
     )
+    expect(signIn).toHaveBeenCalledWith('server-token', 'a@b.com')
+    expect(navigate).toHaveBeenCalledWith({ to: '/projects', replace: true })
+  })
 
-    await userEvent.fill(getByRole('textbox', { name: /Email/i }), 'a@b.com')
-    await userEvent.fill(getByLabelText('Password'), '1234567')
+  it('returns to an in-app redirect after login', async () => {
+    login.mockResolvedValue('server-token')
+    await renderForm('/p/abc/reviews')
 
-    await userEvent.click(getByRole('button', { name: /Sign in/i }))
-
-    await vi.waitFor(() => expect(setUserMock).toHaveBeenCalledOnce())
-    expect(setAccessTokenMock).toHaveBeenCalledOnce()
+    await userEvent.fill(emailInput, 'a@b.com')
+    await userEvent.fill(passwordInput, 'password1')
+    await userEvent.click(submitButton)
 
     await vi.waitFor(() =>
       expect(navigate).toHaveBeenCalledWith({
-        to: '/settings',
+        to: '/p/abc/reviews',
         replace: true,
       })
     )
+  })
+
+  it('ignores an outside redirect', async () => {
+    login.mockResolvedValue('server-token')
+    await renderForm('https://evil.example/')
+
+    await userEvent.fill(emailInput, 'a@b.com')
+    await userEvent.fill(passwordInput, 'password1')
+    await userEvent.click(submitButton)
+
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({ to: '/projects', replace: true })
+    )
+  })
+
+  it('shows the server message and stays signed out when login fails', async () => {
+    const error = new AxiosError('Unauthorized')
+    error.response = {
+      status: 401,
+      data: {
+        error: 'UNAUTHENTICATED',
+        message: '이메일 또는 비밀번호가 맞지 않는다',
+      },
+    } as AxiosError['response']
+    login.mockRejectedValue(error)
+    await renderForm()
+
+    await userEvent.fill(emailInput, 'a@b.com')
+    await userEvent.fill(passwordInput, 'wrong-password')
+    await userEvent.click(submitButton)
+
+    await vi.waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        '이메일 또는 비밀번호가 맞지 않는다'
+      )
+    )
+    expect(signIn).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
+    await expect.element(submitButton).toBeEnabled()
   })
 })
