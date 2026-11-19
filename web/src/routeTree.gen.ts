@@ -22,9 +22,10 @@ import { Route as authSignInRouteImport } from './routes/(auth)/sign-in'
 import { Route as AuthenticatedPProjectIdRouteRouteImport } from './routes/_authenticated/p/$projectId/route'
 import { Route as AuthenticatedPProjectIdIndexRouteImport } from './routes/_authenticated/p/$projectId/index'
 import { Route as AuthenticatedPProjectIdReviewsRouteImport } from './routes/_authenticated/p/$projectId/reviews'
-import { Route as AuthenticatedPProjectIdDocumentsRouteImport } from './routes/_authenticated/p/$projectId/documents'
 import { Route as AuthenticatedPProjectIdContextRouteImport } from './routes/_authenticated/p/$projectId/context'
 import { Route as AuthenticatedPProjectIdBriefingRouteImport } from './routes/_authenticated/p/$projectId/briefing'
+import { Route as AuthenticatedPProjectIdDocumentsIndexRouteImport } from './routes/_authenticated/p/$projectId/documents/index'
+import { Route as AuthenticatedPProjectIdDocumentsDocumentIdRouteImport } from './routes/_authenticated/p/$projectId/documents/$documentId'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
@@ -93,12 +94,6 @@ const AuthenticatedPProjectIdReviewsRoute =
     path: '/reviews',
     getParentRoute: () => AuthenticatedPProjectIdRouteRoute,
   } as any)
-const AuthenticatedPProjectIdDocumentsRoute =
-  AuthenticatedPProjectIdDocumentsRouteImport.update({
-    id: '/documents',
-    path: '/documents',
-    getParentRoute: () => AuthenticatedPProjectIdRouteRoute,
-  } as any)
 const AuthenticatedPProjectIdContextRoute =
   AuthenticatedPProjectIdContextRouteImport.update({
     id: '/context',
@@ -109,6 +104,18 @@ const AuthenticatedPProjectIdBriefingRoute =
   AuthenticatedPProjectIdBriefingRouteImport.update({
     id: '/briefing',
     path: '/briefing',
+    getParentRoute: () => AuthenticatedPProjectIdRouteRoute,
+  } as any)
+const AuthenticatedPProjectIdDocumentsIndexRoute =
+  AuthenticatedPProjectIdDocumentsIndexRouteImport.update({
+    id: '/documents/',
+    path: '/documents/',
+    getParentRoute: () => AuthenticatedPProjectIdRouteRoute,
+  } as any)
+const AuthenticatedPProjectIdDocumentsDocumentIdRoute =
+  AuthenticatedPProjectIdDocumentsDocumentIdRouteImport.update({
+    id: '/documents/$documentId',
+    path: '/documents/$documentId',
     getParentRoute: () => AuthenticatedPProjectIdRouteRoute,
   } as any)
 
@@ -125,9 +132,10 @@ export interface FileRoutesByFullPath {
   '/p/$projectId': typeof AuthenticatedPProjectIdRouteRouteWithChildren
   '/p/$projectId/briefing': typeof AuthenticatedPProjectIdBriefingRoute
   '/p/$projectId/context': typeof AuthenticatedPProjectIdContextRoute
-  '/p/$projectId/documents': typeof AuthenticatedPProjectIdDocumentsRoute
   '/p/$projectId/reviews': typeof AuthenticatedPProjectIdReviewsRoute
   '/p/$projectId/': typeof AuthenticatedPProjectIdIndexRoute
+  '/p/$projectId/documents/$documentId': typeof AuthenticatedPProjectIdDocumentsDocumentIdRoute
+  '/p/$projectId/documents/': typeof AuthenticatedPProjectIdDocumentsIndexRoute
 }
 export interface FileRoutesByTo {
   '/sign-in': typeof authSignInRoute
@@ -141,9 +149,10 @@ export interface FileRoutesByTo {
   '/': typeof AuthenticatedIndexRoute
   '/p/$projectId/briefing': typeof AuthenticatedPProjectIdBriefingRoute
   '/p/$projectId/context': typeof AuthenticatedPProjectIdContextRoute
-  '/p/$projectId/documents': typeof AuthenticatedPProjectIdDocumentsRoute
   '/p/$projectId/reviews': typeof AuthenticatedPProjectIdReviewsRoute
   '/p/$projectId': typeof AuthenticatedPProjectIdIndexRoute
+  '/p/$projectId/documents/$documentId': typeof AuthenticatedPProjectIdDocumentsDocumentIdRoute
+  '/p/$projectId/documents': typeof AuthenticatedPProjectIdDocumentsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -160,9 +169,10 @@ export interface FileRoutesById {
   '/_authenticated/p/$projectId': typeof AuthenticatedPProjectIdRouteRouteWithChildren
   '/_authenticated/p/$projectId/briefing': typeof AuthenticatedPProjectIdBriefingRoute
   '/_authenticated/p/$projectId/context': typeof AuthenticatedPProjectIdContextRoute
-  '/_authenticated/p/$projectId/documents': typeof AuthenticatedPProjectIdDocumentsRoute
   '/_authenticated/p/$projectId/reviews': typeof AuthenticatedPProjectIdReviewsRoute
   '/_authenticated/p/$projectId/': typeof AuthenticatedPProjectIdIndexRoute
+  '/_authenticated/p/$projectId/documents/$documentId': typeof AuthenticatedPProjectIdDocumentsDocumentIdRoute
+  '/_authenticated/p/$projectId/documents/': typeof AuthenticatedPProjectIdDocumentsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -179,9 +189,10 @@ export interface FileRouteTypes {
     | '/p/$projectId'
     | '/p/$projectId/briefing'
     | '/p/$projectId/context'
-    | '/p/$projectId/documents'
     | '/p/$projectId/reviews'
     | '/p/$projectId/'
+    | '/p/$projectId/documents/$documentId'
+    | '/p/$projectId/documents/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/sign-in'
@@ -195,9 +206,10 @@ export interface FileRouteTypes {
     | '/'
     | '/p/$projectId/briefing'
     | '/p/$projectId/context'
-    | '/p/$projectId/documents'
     | '/p/$projectId/reviews'
     | '/p/$projectId'
+    | '/p/$projectId/documents/$documentId'
+    | '/p/$projectId/documents'
   id:
     | '__root__'
     | '/_authenticated'
@@ -213,9 +225,10 @@ export interface FileRouteTypes {
     | '/_authenticated/p/$projectId'
     | '/_authenticated/p/$projectId/briefing'
     | '/_authenticated/p/$projectId/context'
-    | '/_authenticated/p/$projectId/documents'
     | '/_authenticated/p/$projectId/reviews'
     | '/_authenticated/p/$projectId/'
+    | '/_authenticated/p/$projectId/documents/$documentId'
+    | '/_authenticated/p/$projectId/documents/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -322,13 +335,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPProjectIdReviewsRouteImport
       parentRoute: typeof AuthenticatedPProjectIdRouteRoute
     }
-    '/_authenticated/p/$projectId/documents': {
-      id: '/_authenticated/p/$projectId/documents'
-      path: '/documents'
-      fullPath: '/p/$projectId/documents'
-      preLoaderRoute: typeof AuthenticatedPProjectIdDocumentsRouteImport
-      parentRoute: typeof AuthenticatedPProjectIdRouteRoute
-    }
     '/_authenticated/p/$projectId/context': {
       id: '/_authenticated/p/$projectId/context'
       path: '/context'
@@ -343,25 +349,42 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPProjectIdBriefingRouteImport
       parentRoute: typeof AuthenticatedPProjectIdRouteRoute
     }
+    '/_authenticated/p/$projectId/documents/': {
+      id: '/_authenticated/p/$projectId/documents/'
+      path: '/documents'
+      fullPath: '/p/$projectId/documents/'
+      preLoaderRoute: typeof AuthenticatedPProjectIdDocumentsIndexRouteImport
+      parentRoute: typeof AuthenticatedPProjectIdRouteRoute
+    }
+    '/_authenticated/p/$projectId/documents/$documentId': {
+      id: '/_authenticated/p/$projectId/documents/$documentId'
+      path: '/documents/$documentId'
+      fullPath: '/p/$projectId/documents/$documentId'
+      preLoaderRoute: typeof AuthenticatedPProjectIdDocumentsDocumentIdRouteImport
+      parentRoute: typeof AuthenticatedPProjectIdRouteRoute
+    }
   }
 }
 
 interface AuthenticatedPProjectIdRouteRouteChildren {
   AuthenticatedPProjectIdBriefingRoute: typeof AuthenticatedPProjectIdBriefingRoute
   AuthenticatedPProjectIdContextRoute: typeof AuthenticatedPProjectIdContextRoute
-  AuthenticatedPProjectIdDocumentsRoute: typeof AuthenticatedPProjectIdDocumentsRoute
   AuthenticatedPProjectIdReviewsRoute: typeof AuthenticatedPProjectIdReviewsRoute
   AuthenticatedPProjectIdIndexRoute: typeof AuthenticatedPProjectIdIndexRoute
+  AuthenticatedPProjectIdDocumentsDocumentIdRoute: typeof AuthenticatedPProjectIdDocumentsDocumentIdRoute
+  AuthenticatedPProjectIdDocumentsIndexRoute: typeof AuthenticatedPProjectIdDocumentsIndexRoute
 }
 
 const AuthenticatedPProjectIdRouteRouteChildren: AuthenticatedPProjectIdRouteRouteChildren =
   {
     AuthenticatedPProjectIdBriefingRoute: AuthenticatedPProjectIdBriefingRoute,
     AuthenticatedPProjectIdContextRoute: AuthenticatedPProjectIdContextRoute,
-    AuthenticatedPProjectIdDocumentsRoute:
-      AuthenticatedPProjectIdDocumentsRoute,
     AuthenticatedPProjectIdReviewsRoute: AuthenticatedPProjectIdReviewsRoute,
     AuthenticatedPProjectIdIndexRoute: AuthenticatedPProjectIdIndexRoute,
+    AuthenticatedPProjectIdDocumentsDocumentIdRoute:
+      AuthenticatedPProjectIdDocumentsDocumentIdRoute,
+    AuthenticatedPProjectIdDocumentsIndexRoute:
+      AuthenticatedPProjectIdDocumentsIndexRoute,
   }
 
 const AuthenticatedPProjectIdRouteRouteWithChildren =

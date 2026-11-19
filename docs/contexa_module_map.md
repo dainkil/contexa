@@ -451,11 +451,17 @@ identity-access   signUp(String email, String displayName, String password) : UU
                   revokeAgentTokens(UUID projectId, UUID admin) : int
                   registerDocument(UUID documentId, UUID projectId, UUID owner, Visibility v, boolean externalOk)
                   readableDocumentIds(Caller c) : Set<UUID>
+                  readableDocuments(Caller c) : Map<UUID, DocumentAccess>   // 같은 규칙 + 문서마다 공개 범위(visibility, externalOk)
                   canRead(Caller c, UUID documentId) : boolean
                   // 비밀번호는 PBKDF2 해시, 토큰은 SHA-256 해시로만 저장한다
 
 document-evidence registerDocument(Caller c, DocumentInput in) : SourceVersionRef   // 구성원. 열람 범위를 identity에 등록
-                  addVersion(Caller c, UUID documentId, String content) : SourceVersionRef   // 같은 내용은 거절
+                  addVersion(Caller c, UUID documentId, String content) : SourceVersionRef   // 같은 내용은 거절. 읽을 수 없는 문서(남의 개인 메모)는 없는 문서와 똑같이 거절
+                  listReadable(Caller c) : List<DocumentInfo>                // 읽을 수 있는 문서만, 최근 것부터
+                  readable(Caller c, UUID documentId) : DocumentInfo         // 없음·다른 프로젝트·읽을 수 없음을 구분하지 않고 DocumentNotFound
+                  versionsOf(UUID projectId, Collection<UUID> documentIds) : Map<UUID, List<VersionSummary>>   // 판마다 발언 수. 권한 검사는 호출한 쪽이
+                  versionOfSpan(UUID projectId, UUID spanId) : Optional<SourceVersionRef>
+                  documentsOfVersions(UUID projectId, Collection<UUID> versionIds) : Map<UUID, UUID>
                   readContent(UUID sourceVersionId) : String
                   saveSpans(UUID sourceVersionId, List<SpanDraft> spans) : List<NodeRef>   // 순서대로 번호. 한 판에 한 번
                   getSpans(UUID projectId, Collection<UUID> spanIds) : List<Span>           // 권한 검사는 호출한 쪽이
@@ -472,6 +478,7 @@ job-operation     enqueue(JobType t, UUID projectId, UUID subjectId, String payl
                   fail(UUID jobId, UUID attemptId, String leaseToken, String reason, boolean retryable) : Job
                   cancel(UUID projectId, UUID jobId) : Job
                   get / list
+                  bySubjects(UUID projectId, Collection<UUID> subjectIds) : List<Job>   // 문서의 판마다 자르기·뽑기 상태
                   // 작업 내용은 subject_id(문서의 판 등)와 payload(질문 등) 두 칸으로 적는다. 최대 3번 시도
 
 retrieval         search(UUID projectId, String queryText, Collection<UUID> allowedDocumentIds, int k) : List<SpanHit>
@@ -498,6 +505,12 @@ pipeline          startIngest(Caller c, DocumentInput in) : IngestStarted   // r
                   //   GENERATE → generation-wiki.publishArtifact                          (구현됨)
                   // 넘기다 실패하면 결과를 받지 않은 것으로 되돌아가고, 일꾼은 같은 임대증으로 고쳐서 다시 낼 수 있다
                   getJob / listJobs
+                  // 볼 수 있는 작업만: PARSE·EXTRACT는 그 문서를 읽을 수 있어야, GENERATE는 요청한 사람에게만. 아니면 없는 작업과 같다
+                  listDocuments(Caller c) : List<DocumentStatus>            // 문서 + 판 수 + 가장 최근 판의 처리 상태
+                  openDocument(Caller c, UUID documentId, Integer versionNo, UUID spanId) : DocumentView
+                  // 원문 뷰어. 판을 고르지 않으면 최신 판, spanId를 주면 그 발언이 든 판(근거 Source에는 판이 없어서).
+                  // 아직 자르지 않은 판은 원문 전체(content)를, 자른 판은 발언(spans)을 돌려준다.
+                  // 원문·발언은 카드가 아니라 자료실 데이터이고 작업 상태와 함께 보여야 해서 gateway가 아니라 여기에 둔다
 ```
 
 ### B.8 `api` (번역만)
@@ -547,7 +560,8 @@ ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 낡은 
   - `Origin` 헤더가 붙은 요청은 `contexa.mcp.allowed-origins`에 있을 때만 받는다(브라우저의 다른 사이트가 부르는 것을 막기 위해). 기본값은 빈 목록이다.
 - 질문·답변: `POST /api/v1/projects/{id}/generations {question, kind?, lang?}`, `GET /generations`, `GET /generations/{artifactId}`. 근거 검색: `POST /api/v1/projects/{id}/context/search {query, k?}`(찾을 내용은 주소가 아니라 본문으로 보낸다).
 - 뒷문에 글쓰기용 주소 추가: `GET /internal/v1/jobs/{jobId}/request`, `POST /{jobId}/context/search`, `GET /{jobId}/context/trace`.
-- 문서 올리기: `POST /api/v1/projects/{id}/documents`, `/documents/{documentId}/versions` → `pipeline.startIngest`. 작업 상태: `GET /api/v1/projects/{id}/jobs`, `/jobs/{jobId}`.
+- 문서 올리기: `POST /api/v1/projects/{id}/documents`, `/documents/{documentId}/versions` → `pipeline.startIngest`. 작업 상태: `GET /api/v1/projects/{id}/jobs`, `/jobs/{jobId}`(볼 수 있는 작업만).
+- 문서 읽기: `GET /api/v1/projects/{id}/documents` → `pipeline.listDocuments`(읽을 수 있는 문서 + 최신 판 처리 상태), `GET /documents/{documentId}[?version=N | ?span=spanId]` → `pipeline.openDocument`(판 목록과 처리 상태, 연 판의 발언 또는 자르기 전 원문). 읽을 수 없는 문서는 404. version과 span을 함께 주면 400.
 - 뒷문(`InternalJobController`, AI 인턴 전용): `GET /internal/v1/jobs/ontology`, `POST /claim`, `GET /{jobId}/content`, `/{jobId}/spans`, `/{jobId}/context/state`, `POST /{jobId}/result`, `/{jobId}/failure`. 모든 요청에 일꾼 토큰(`X-Worker-Token`)이, 일을 가져간 뒤에는 임대증(`X-Attempt-Id`, `X-Lease-Token`)이 필요하다. 사람의 로그인 토큰으로는 들어올 수 없다. 누구의 권한으로 읽을지는 서버가 작업 기록에서 정한다(`identity-access.callerForJob`).
 - 개발용 패키지 `dev`: `POST /dev/seed`가 예시 사용자·프로젝트·전사문을 만들고, 실제 흐름과 같은 길(`submitCandidates` → `applyAction`)로 "국제교류 행사" 장면을 넣은 뒤 로그인 토큰을 돌려준다. `contexa.dev-seed.enabled: true`일 때만 켜진다.
 - `static/index.html`: 예시 데이터를 넣고 답변서와 검토함을 눈으로 확인하는 개발용 페이지.
@@ -587,8 +601,10 @@ reviewClient.ts   listReviews · getReview · applyReviewAction · changeTaskSta
                   satisfyCondition · setEntityName · linkEntityAccount · reviseSpan · listImpacts
                                                                                (ReviewController)
 authClient.ts     signUp · login · listProjects · createProject · setMember     (AuthController)
+documentClient.ts uploadDocument · uploadVersion · listDocuments · getDocument  (DocumentController)
 ```
-- 문서·작업(`DocumentController`), 질문·답변(`GenerationController`) 클라이언트는 그 화면을 만들 때 추가한다.
+- 질문·답변(`GenerationController`) 클라이언트는 그 화면을 만들 때 추가한다.
+- 문서 화면: `/p/{projectId}/documents`(목록, 처리 중이면 2초마다 다시 읽음), `/p/{projectId}/documents/{documentId}?version=|span=`(원문 뷰어). 근거 링크는 `?span=발언 id`로 만들면 그 발언이 든 판을 열고 노란색(`--evidence`)으로 칠한다.
 - 화면은 `/p/{projectId}/…` 아래에 있다. 내 프로젝트 목록에 없는 id는 열지 않지만, 실제 권한 검사는 server가 요청마다 한다.
 
 ## 부록 C. 함수 호출 순서

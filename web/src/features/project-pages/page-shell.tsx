@@ -6,8 +6,12 @@ import { Search } from '@/components/search'
 import { ThemeSwitch } from '@/components/theme-switch'
 
 type ProjectPageProps = {
-  title: string
-  description: string
+  title: React.ReactNode
+  description: React.ReactNode
+  /** 제목 오른쪽에 둘 버튼 */
+  actions?: React.ReactNode
+  /** 제목 위에 둘 것(돌아가기 링크 등) */
+  before?: React.ReactNode
   children?: React.ReactNode
 }
 
@@ -15,6 +19,8 @@ type ProjectPageProps = {
 export function ProjectPage({
   title,
   description,
+  actions,
+  before,
   children,
 }: ProjectPageProps) {
   return (
@@ -28,9 +34,17 @@ export function ProjectPage({
         </div>
       </Header>
       <Main>
-        <div className='mb-4'>
-          <h2 className='text-2xl font-bold tracking-tight'>{title}</h2>
-          <p className='text-muted-foreground'>{description}</p>
+        {before}
+        <div className='mb-4 flex flex-wrap items-end justify-between gap-2'>
+          <div className='min-w-0'>
+            <h2 className='text-2xl font-bold tracking-tight break-words'>
+              {title}
+            </h2>
+            <div className='text-muted-foreground'>{description}</div>
+          </div>
+          {actions && (
+            <div className='flex flex-wrap items-center gap-2'>{actions}</div>
+          )}
         </div>
         {children}
       </Main>
