@@ -609,6 +609,7 @@ documentClient.ts uploadDocument · uploadVersion · listDocuments · getDocumen
 - 질문·답변(`GenerationController`) 클라이언트는 그 화면을 만들 때 추가한다.
 - 문서 화면: `/p/{projectId}/documents`(목록, 처리 중이면 2초마다 다시 읽음), `/p/{projectId}/documents/{documentId}?version=|span=`(원문 뷰어). 근거 링크는 `?span=발언 id`로 만들면 그 발언이 든 판을 열고 노란색(`--evidence`)으로 칠한다.
 - 검토함 화면: `/p/{projectId}/reviews?state=OPEN|DONE&type=`. 묶음마다 카드·근거 원문(`?span=` 원문 링크)·딸린 줄을 보여 주고, 확인·보류·거절·철회와 정정(바뀐 값만 `corrections`로)을 보낸다. 줄은 따로 고르지 않으면 카드 판단을 따른다. `idempotencyKey`는 `묶음 id:버전:요청 내용 해시`라 같은 요청을 두 번 보내도 한 번만 처리되고, 그사이 묶음이 바뀌었으면 server가 409(STALE)로 막는다. 처리한 뒤에는 영향받는 카드 수를 알려 준다. 구성원(MEMBER)은 볼 수만 있다.
+- 원문 뷰어의 발언 정정: 소유자·검토자에게만 발언마다 정정 버튼이 있고, `reviseSpan`에 내가 본 발언 버전을 함께 보낸다.
 - 화면은 `/p/{projectId}/…` 아래에 있다. 내 프로젝트 목록에 없는 id는 열지 않지만, 실제 권한 검사는 server가 요청마다 한다.
 
 ## 부록 C. 함수 호출 순서

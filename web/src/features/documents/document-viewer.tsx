@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, getRouteApi } from '@tanstack/react-router'
 import { ArrowLeft, FilePlus2, Globe, Lock } from 'lucide-react'
+import type { Span } from '@/api/types'
 import { serverErrorMessage } from '@/lib/handle-server-error'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,9 +15,11 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ProjectPage } from '@/features/project-pages/page-shell'
+import { projectsQueryOptions } from '@/features/projects/queries'
 import { NewVersionDialog } from './new-version-dialog'
 import { ProcessingSteps } from './processing-status'
 import { documentQueryOptions } from './queries'
+import { ReviseSpanDialog } from './revise-span-dialog'
 import { SpanList } from './span-list'
 import { KIND_LABEL, formatInstant, languageLabel } from './status'
 
@@ -32,6 +35,11 @@ export function DocumentViewer() {
   const navigate = route.useNavigate()
   const doc = useQuery(documentQueryOptions(projectId, documentId, search))
   const [addingVersion, setAddingVersion] = useState(false)
+  const [revising, setRevising] = useState<Span | null>(null)
+  const role = useQuery(projectsQueryOptions()).data?.find(
+    (p) => p.id === projectId
+  )?.role
+  const canRevise = role === 'OWNER' || role === 'REVIEWER'
 
   const backLink = (
     <Link
@@ -152,7 +160,11 @@ export function DocumentViewer() {
         )}
 
         {opened.spans.length > 0 ? (
-          <SpanList spans={opened.spans} highlightId={search.span} />
+          <SpanList
+            spans={opened.spans}
+            highlightId={search.span}
+            onRevise={canRevise ? setRevising : undefined}
+          />
         ) : (
           <div className='grid gap-2'>
             <p className='text-sm text-muted-foreground'>
@@ -168,6 +180,15 @@ export function DocumentViewer() {
           </div>
         )}
       </div>
+
+      {revising && (
+        <ReviseSpanDialog
+          key={`${revising.ref.id}:${revising.ref.revision}`}
+          projectId={projectId}
+          span={revising}
+          onClose={() => setRevising(null)}
+        />
+      )}
 
       <NewVersionDialog
         projectId={projectId}
