@@ -16,12 +16,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.contexa.android.ContexaApp
+import com.contexa.android.api.NodeType
 import com.contexa.android.api.Role
 import com.contexa.android.appViewModel
 import com.contexa.android.ui.ask.AnswerScreen
 import com.contexa.android.ui.ask.AnswerViewModel
 import com.contexa.android.session.SessionState
 import com.contexa.android.ui.auth.AuthViewModel
+import com.contexa.android.ui.context.HistoryScreen
+import com.contexa.android.ui.context.PacketViewModel
+import com.contexa.android.ui.context.TraceScreen
 import com.contexa.android.ui.auth.SignInScreen
 import com.contexa.android.ui.auth.SignUpScreen
 import com.contexa.android.ui.documents.DocumentViewerScreen
@@ -87,6 +91,39 @@ private fun MainNav(email: String) {
                 onBack = { nav.popBackStack() },
                 onOpenDocument = { documentId, spanId -> nav.navigate(documentRoute(projectId, documentId, role, spanId)) },
                 onOpenAnswer = { artifactId -> nav.navigate("p/${Uri.encode(projectId)}/a/${Uri.encode(artifactId)}?role=$role") },
+                onOpenHistory = { itemId -> nav.navigate("p/${Uri.encode(projectId)}/h/${Uri.encode(itemId)}?role=$role") },
+                onOpenTrace = { node -> nav.navigate("p/${Uri.encode(projectId)}/t/${node.type.name}/${Uri.encode(node.id)}?role=$role") },
+            )
+        }
+
+        // 결정 항목 하나의 이력.
+        composable("p/{projectId}/h/{itemId}?role={role}", arguments = listOf(textArg("role"))) { entry ->
+            val projectId = entry.arguments?.getString("projectId").orEmpty()
+            val itemId = entry.arguments?.getString("itemId").orEmpty()
+            val role = entry.arguments?.getString("role").orEmpty()
+            val viewModel = appViewModel {
+                PacketViewModel(it.documentApi, projectId) { _ -> it.contextApi.history(projectId, itemId) }
+            }
+            HistoryScreen(
+                viewModel = viewModel,
+                onBack = { nav.popBackStack() },
+                onOpenSource = { source -> nav.navigate(documentRoute(projectId, source.documentId, role, source.span.id)) },
+            )
+        }
+
+        // 카드 하나에서 근거·영향을 따라가 본다.
+        composable("p/{projectId}/t/{type}/{id}?role={role}", arguments = listOf(textArg("role"))) { entry ->
+            val projectId = entry.arguments?.getString("projectId").orEmpty()
+            val type = NodeType.valueOf(entry.arguments?.getString("type").orEmpty())
+            val id = entry.arguments?.getString("id").orEmpty()
+            val role = entry.arguments?.getString("role").orEmpty()
+            val viewModel = appViewModel {
+                PacketViewModel(it.documentApi, projectId) { direction -> it.contextApi.trace(projectId, type, id, direction) }
+            }
+            TraceScreen(
+                viewModel = viewModel,
+                onBack = { nav.popBackStack() },
+                onOpenSource = { source -> nav.navigate(documentRoute(projectId, source.documentId, role, source.span.id)) },
             )
         }
 

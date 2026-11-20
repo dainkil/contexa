@@ -7,6 +7,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.contexa.android.api.AuthApi
+import com.contexa.android.api.ContextApi
 import com.contexa.android.api.DocumentApi
 import com.contexa.android.api.GenerationApi
 import com.contexa.android.api.ReviewApi
@@ -39,6 +40,7 @@ class AppContainer(context: Context) {
     val documentApi: DocumentApi = retrofit.create(DocumentApi::class.java)
     val reviewApi: ReviewApi = retrofit.create(ReviewApi::class.java)
     val generationApi: GenerationApi = retrofit.create(GenerationApi::class.java)
+    val contextApi: ContextApi = retrofit.create(ContextApi::class.java)
 
     init {
         appScope.launch { session.load() }

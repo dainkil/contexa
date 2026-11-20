@@ -6,6 +6,7 @@ import com.contexa.android.api.ArtifactSummary
 import com.contexa.android.api.ArtifactView
 import com.contexa.android.api.AskRequest
 import com.contexa.android.api.DocumentApi
+import com.contexa.android.api.GenKind
 import com.contexa.android.api.GenerationApi
 import com.contexa.android.api.userMessage
 import com.contexa.android.ui.documents.POLL_MS
@@ -63,12 +64,22 @@ class AskViewModel(private val api: GenerationApi, private val projectId: String
     /** @param onAsked 새 글의 id를 받는다. 화면은 그 답변 화면으로 간다. */
     fun ask(onAsked: (artifactId: String) -> Unit) {
         val current = _state.value
-        if (current.asking || !canAsk(current.question)) return
+        if (!canAsk(current.question)) return
+        send(AskRequest(question = current.question.trim(), lang = current.lang), clearQuestion = true, onAsked)
+    }
+
+    /** 프로젝트 현황을 정리한 글(브리핑)을 요청한다. 쓰던 질문은 그대로 둔다. */
+    fun askBriefing(onAsked: (artifactId: String) -> Unit) {
+        send(AskRequest(GenKind.BRIEFING, BRIEFING_QUESTION, _state.value.lang), clearQuestion = false, onAsked)
+    }
+
+    private fun send(request: AskRequest, clearQuestion: Boolean, onAsked: (String) -> Unit) {
+        if (_state.value.asking) return
         _state.update { it.copy(asking = true, askError = null) }
         viewModelScope.launch {
             try {
-                val requested = api.ask(projectId, AskRequest(question = current.question.trim(), lang = current.lang))
-                _state.update { it.copy(asking = false, question = "") }
+                val requested = api.ask(projectId, request)
+                _state.update { it.copy(asking = false, question = if (clearQuestion) "" else it.question) }
                 onAsked(requested.artifactId)
             } catch (e: CancellationException) {
                 throw e

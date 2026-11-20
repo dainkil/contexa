@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.contexa.android.api.ArtifactSummary
 import com.contexa.android.api.GenKind
 import com.contexa.android.ui.components.PrimaryButton
+import com.contexa.android.ui.components.SecondaryButton
 import com.contexa.android.ui.components.Tag
 import com.contexa.android.ui.documents.LANGUAGES
 import com.contexa.android.ui.documents.formatInstant
@@ -98,12 +99,19 @@ fun AskScreen(viewModel: AskViewModel, onOpenAnswer: (artifactId: String) -> Uni
                         )
                     }
                 }
-                PrimaryButton(
-                    "질문하기",
-                    onClick = { viewModel.ask(onOpenAnswer) },
-                    enabled = canAsk(state.question),
-                    loading = state.asking,
-                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    PrimaryButton(
+                        "질문하기",
+                        onClick = { viewModel.ask(onOpenAnswer) },
+                        enabled = canAsk(state.question),
+                        loading = state.asking,
+                    )
+                    // 질문 없이 프로젝트 현황을 정리해 받는다.
+                    SecondaryButton("브리핑 받기", onClick = { viewModel.askBriefing(onOpenAnswer) }, enabled = !state.asking)
+                }
             }
         }
 
