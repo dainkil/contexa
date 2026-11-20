@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 화면은 전부 Compose가 그린다. 이 테마는 앱이 뜨는 순간의 창 배경만 정한다. -->
+    <style name="Theme.Contexa" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

@@ -3,3 +3,13 @@
 
 # 편집기 설정
 .vscode/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.kotlin/
+.idea/
+*.jks
+*.keystore
