@@ -4,7 +4,7 @@
 >
 > 본문(1~8장)은 개발을 몰라도 읽을 수 있게 썼고, 코드로 옮길 때 필요한 이름과 시그니처는 부록에 모았다.
 
-Contexa를 만들기 전에 "프로그램을 어떤 부서들로 나누고, 누가 누구에게 일을 부탁하는지"를 정한 문서다. 스택은 기존 합의대로 Java(Spring Boot) 업무 서버, Python(FastAPI) AI 처리부, React 웹, PostgreSQL이다.
+Contexa를 만들기 전에 "프로그램을 어떤 부서들로 나누고, 누가 누구에게 일을 부탁하는지"를 정한 문서다. 스택은 기존 합의대로 Java(Spring Boot) 업무 서버, Python AI 처리부, Android 앱(처음 합의는 React 웹이었고 2026-11-21에 바꿨다), PostgreSQL이다.
 
 ## 1. 왜 지도부터 그리나
 
@@ -143,7 +143,7 @@ Contexa를 만들기 전에 "프로그램을 어떤 부서들로 나누고, 누�
 | 2 | 게시판 관리 | 줄을 긋고 따라갈 수 있음 |
 | 3 | 결정·업무 관리 | 카드를 저장하고 현재 결정을 계산함 |
 | 4 | 안내 데스크 | "인쇄 발주의 근거를 따라가 줘"에 답변서가 나옴 |
-| 5 | 정문 | 브라우저에서 4번을 눈으로 확인 |
+| 5 | 정문 | 개발용 페이지(브라우저)에서 4번을 눈으로 확인 |
 | 6 | 출입 관리, 자료실, 결재 창구, 이름 확인 | 로그인, 자료 등록, 도장 찍기 |
 | 7 | 작업 접수대, 작업 흐름 관리, AI 인턴, 검색, 문서 작성, 외부 AI 연결 | AI가 후보와 답변을 만듦 |
 
@@ -591,26 +591,27 @@ server.py    ServerClient            뒷문 클라이언트 (표준 라이브러
 - 답이 참고한 카드·줄·발언은 읽었을 때의 버전과 함께 낸다. 서버가 "그사이 바뀌었다"고 거절하면 근거부터 다시 읽고 한 번 다시 쓴다.
 - 아직 없는 것: 검색용 임베딩. Claude API에는 임베딩이 없어서 검색은 글자 일치로 만들었고, 임베딩은 CLOVA로 바꿀 때 붙인다.
 
-### B.10 웹
-`contextClient.ts`만 `/context/*`를 호출하고, 페이지 컴포넌트는 돌려받은 `ContextPacket`만 그린다. 바꾸는 동작은 `reviewClient.ts` 하나로 모은다.
+### B.10 Android 앱
+`ContextApi`만 `/context/*`를 호출하고, 화면은 돌려받은 `ContextPacket`을 엮어 그린다. 권한·상태 계산은 server가 한다. React 웹은 2026-11-21에 지우고 이 앱으로 바꿨다(웹 코드는 git 기록에 있다).
 
-`web/src/api/` (React + TypeScript + Vite. 개발 중에는 Vite가 `/api`를 `127.0.0.1:8090`으로 프록시한다)
+`android/app/src/main/java/com/contexa/android/api/` (Kotlin + Retrofit + kotlinx.serialization. 개발 중에는 `adb reverse`로 기기의 8090 포트를 이 컴퓨터로 돌려 `http://127.0.0.1:8090/api/v1/`에 붙는다)
 ```
-http.ts           axios 인스턴스(baseURL /api/v1). 요청마다 Authorization: Bearer
-types.ts          server 응답 타입. 원본은 Java contract·컨트롤러 record
-contextClient.ts  trace · currentState · decisionHistory · searchEvidence · tasks
-                  resolveEntity · nameCard · verifyCurrent                     (ContextController)
-reviewClient.ts   listReviews · getReview · applyReviewAction · changeTaskStatus · acceptTask
-                  satisfyCondition · setEntityName · linkEntityAccount · reviseSpan · listImpacts
-                                                                               (ReviewController)
-authClient.ts     signUp · login · listProjects · createProject · setMember     (AuthController)
-documentClient.ts uploadDocument · uploadVersion · listDocuments · getDocument  (DocumentController)
+Http.kt           OkHttp·Retrofit 만들기. 요청마다 Authorization: Bearer, 401이면 로그인 화면으로
+Models.kt         server 응답 타입. 원본은 Java contract·컨트롤러 record
+ContextApi.kt     state · history · trace · tasks                              (ContextController)
+                  taskStatus · acceptance                                      (ReviewController)
+ReviewApi.kt      list · act                                                   (ReviewController)
+AuthApi.kt        signUp · login · listProjects · createProject                   (AuthController)
+DocumentApi.kt    upload · uploadVersion · list · open · reviseSpan            (DocumentController)
+GenerationApi.kt  ask · list · get                                             (GenerationController)
 ```
-- 질문·답변(`GenerationController`) 클라이언트는 그 화면을 만들 때 추가한다.
-- 문서 화면: `/p/{projectId}/documents`(목록, 처리 중이면 2초마다 다시 읽음), `/p/{projectId}/documents/{documentId}?version=|span=`(원문 뷰어). 근거 링크는 `?span=발언 id`로 만들면 그 발언이 든 판을 열고 노란색(`--evidence`)으로 칠한다.
-- 검토함 화면: `/p/{projectId}/reviews?state=OPEN|DONE&type=`. 묶음마다 카드·근거 원문(`?span=` 원문 링크)·딸린 줄을 보여 주고, 확인·보류·거절·철회와 정정(바뀐 값만 `corrections`로)을 보낸다. 줄은 따로 고르지 않으면 카드 판단을 따른다. `idempotencyKey`는 `묶음 id:버전:요청 내용 해시`라 같은 요청을 두 번 보내도 한 번만 처리되고, 그사이 묶음이 바뀌었으면 server가 409(STALE)로 막는다. 처리한 뒤에는 영향받는 카드 수를 알려 준다. 구성원(MEMBER)은 볼 수만 있다.
-- 원문 뷰어의 발언 정정: 소유자·검토자에게만 발언마다 정정 버튼이 있고, `reviseSpan`에 내가 본 발언 버전을 함께 보낸다.
-- 화면은 `/p/{projectId}/…` 아래에 있다. 내 프로젝트 목록에 없는 id는 열지 않지만, 실제 권한 검사는 server가 요청마다 한다.
+- 아직 부르지 않는 것: `searchEvidence`, `resolveEntity`, `nameCard`, `verifyCurrent`, `satisfyCondition`, 이름 확인(`/entities/{id}/names`), 계정 연결(`/entities/{id}/account`), 구성원 관리. 계정 연결이 앱에 없어서 "내 할 일"과 담당 수락은 다른 경로로 계정을 인물 카드에 연결해야 쓸 수 있다.
+- 화면은 프로젝트 목록 → 프로젝트 안의 아래 탭 네 개(자료함·검토함·질문·맥락)다. 실제 권한 검사는 server가 요청마다 한다.
+- 자료함: 목록은 처리 중인 문서가 있으면 2초마다 다시 읽는다. 원문 뷰어는 판을 고를 수 있고, 근거 링크로 열면(`span=발언 id`) 그 발언이 든 판을 열고 노란색으로 칠한다. 소유자·검토자에게만 발언마다 정정 버튼이 있고, 내가 본 발언 버전을 함께 보낸다.
+- 검토함: 확인할 것(OPEN)·처리한 것(DONE), 종류 거르기. 묶음마다 카드·근거 원문·딸린 줄을 보여 주고, 확인·보류·거절·철회와 정정(바뀐 값만 `corrections`로)을 보낸다. 줄은 따로 고르지 않으면 카드 판단을 따른다. `idempotencyKey`는 `묶음 id:버전:요청 내용 해시`라 같은 요청을 두 번 보내도 한 번만 처리되고, 그사이 묶음이 바뀌었으면 server가 409(STALE)로 막는다. 처리한 뒤에는 영향받는 카드 수를 알려 준다. 구성원(MEMBER)은 볼 수만 있다.
+- 질문: 답변 언어를 골라 묻거나 브리핑(`kind=BRIEFING`)을 받는다. 답이 써질 때까지 2초마다 다시 열어 보고(3분 상한), 본문의 `[1]`, `[2]`에 맞춘 인용을 누르면 원문 뷰어의 그 발언으로 간다. 참고한 카드가 그사이 바뀌었으면(`stale`) 경고를 띄운다.
+- 맥락: 현황(`state`)을 안건별 결정 항목과 "남은 것"으로 보여 주고, 항목의 이력(`history`)과 카드의 근거·영향(`trace`)을 연다. 할 일은 상태를 바꾸고(내가 읽은 revision을 함께 보냄), "내 할 일"에서는 담당을 수락·거절한다.
+- 코드 구조와 실행 방법은 `android/README.md`.
 
 ## 부록 C. 함수 호출 순서
 

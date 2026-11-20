@@ -45,7 +45,7 @@
   <text class="c" x="140" y="224">KO · EN · AR</text>
   <line class="a" x1="140" y1="234" x2="140" y2="264"/>
   <rect class="n" x="75" y="268" width="130" height="50" rx="6"/>
-  <text class="t" x="140" y="293">React 웹</text>
+  <text class="t" x="140" y="293">Android 앱</text>
   <rect class="n" x="75" y="420" width="130" height="50" rx="6"/>
   <text class="t" x="140" y="445">AI 에이전트</text>
   <path class="a" d="M205 293 H222 V350 H276"/>
