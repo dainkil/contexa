@@ -7,7 +7,10 @@ plugins {
 
 android {
     namespace = "com.contexa.android"
-    compileSdk = 37
+    // Compose 1.13이 API 37.1 이상으로 컴파일하기를 요구한다.
+    compileSdk {
+        version = release(37) { minorApiLevel = 2 }
+    }
 
     defaultConfig {
         applicationId = "com.contexa.android"
