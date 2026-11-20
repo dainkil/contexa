@@ -35,6 +35,8 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.contexa.android.appViewModel
+import com.contexa.android.ui.ask.AskScreen
+import com.contexa.android.ui.ask.AskViewModel
 import com.contexa.android.ui.documents.DocumentsScreen
 import com.contexa.android.ui.documents.DocumentsViewModel
 import com.contexa.android.ui.reviews.ReviewsScreen
@@ -50,10 +52,11 @@ enum class ProjectTab(val label: String, val icon: ImageVector) {
 }
 
 /**
- * 프로젝트 안 화면. 아래 탭으로 자료함·검토함·질문·맥락을 오간다.
+ * 프로젝트 안 화면. 아래 탭으로 자료함·검토함·질문·맥락을 오간다. 맥락은 아직 빈 자리다.
  *
  * @param canReview      소유자·검토자인가(확인·정정을 할 수 있나)
  * @param onOpenDocument 원문 뷰어를 연다. spanId를 주면 그 발언 자리로 간다.
+ * @param onOpenAnswer   답변 화면을 연다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +66,7 @@ fun ProjectScreen(
     canReview: Boolean,
     onBack: () -> Unit,
     onOpenDocument: (documentId: String, spanId: String?) -> Unit,
+    onOpenAnswer: (artifactId: String) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(ProjectTab.DOCUMENTS) }
     val snackbar = remember { SnackbarHostState() }
@@ -122,7 +126,12 @@ fun ProjectScreen(
                 modifier = content,
             )
 
-            ProjectTab.ASK -> ComingSoon("질문과 답변은 다음 단계에서 만듭니다.", content)
+            ProjectTab.ASK -> AskScreen(
+                viewModel = appViewModel(key = "ask") { AskViewModel(it.generationApi, projectId) },
+                onOpenAnswer = onOpenAnswer,
+                modifier = content,
+            )
+
             ProjectTab.CONTEXT -> ComingSoon("맥락과 할 일은 다음 단계에서 만듭니다.", content)
         }
     }

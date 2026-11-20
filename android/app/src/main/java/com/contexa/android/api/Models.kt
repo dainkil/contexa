@@ -273,6 +273,17 @@ enum class ArtifactStatus { PENDING, PUBLISHED, FAILED }
 @Serializable
 data class GenerationRequested(val artifactId: String, val jobId: String)
 
+/** 글 목록의 한 줄(generation/GenerationWiki.ArtifactSummary). published가 false면 쓰는 중이거나 실패했다. */
+@Serializable
+data class ArtifactSummary(
+    val id: String,
+    val kind: GenKind,
+    val question: String,
+    val lang: String,
+    val published: Boolean,
+    val createdAt: String,
+)
+
 /** 글 하나(generation/ArtifactView.java). stale = 글을 쓴 뒤에 바뀐 근거. */
 @Serializable
 data class ArtifactView(

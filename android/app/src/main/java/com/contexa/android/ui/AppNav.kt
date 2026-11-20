@@ -18,6 +18,8 @@ import androidx.navigation.navArgument
 import com.contexa.android.ContexaApp
 import com.contexa.android.api.Role
 import com.contexa.android.appViewModel
+import com.contexa.android.ui.ask.AnswerScreen
+import com.contexa.android.ui.ask.AnswerViewModel
 import com.contexa.android.session.SessionState
 import com.contexa.android.ui.auth.AuthViewModel
 import com.contexa.android.ui.auth.SignInScreen
@@ -83,10 +85,21 @@ private fun MainNav(email: String) {
                 title = entry.arguments?.getString("title").orEmpty(),
                 canReview = canReview(role),
                 onBack = { nav.popBackStack() },
-                onOpenDocument = { documentId, spanId ->
-                    val span = spanId?.let { "&span=${Uri.encode(it)}" }.orEmpty()
-                    nav.navigate("p/${Uri.encode(projectId)}/d/${Uri.encode(documentId)}?role=$role$span")
-                },
+                onOpenDocument = { documentId, spanId -> nav.navigate(documentRoute(projectId, documentId, role, spanId)) },
+                onOpenAnswer = { artifactId -> nav.navigate("p/${Uri.encode(projectId)}/a/${Uri.encode(artifactId)}?role=$role") },
+            )
+        }
+
+        // 답변 하나. 인용을 누르면 원문 뷰어의 그 발언으로 간다.
+        composable("p/{projectId}/a/{artifactId}?role={role}", arguments = listOf(textArg("role"))) { entry ->
+            val projectId = entry.arguments?.getString("projectId").orEmpty()
+            val artifactId = entry.arguments?.getString("artifactId").orEmpty()
+            val role = entry.arguments?.getString("role").orEmpty()
+            val viewModel = appViewModel { AnswerViewModel(it.generationApi, it.documentApi, projectId, artifactId) }
+            AnswerScreen(
+                viewModel = viewModel,
+                onBack = { nav.popBackStack() },
+                onOpenSource = { source -> nav.navigate(documentRoute(projectId, source.documentId, role, source.span.id)) },
             )
         }
 
@@ -113,6 +126,12 @@ private fun MainNav(email: String) {
             )
         }
     }
+}
+
+/** 원문 뷰어 주소. spanId를 주면 그 발언이 들어 있는 판을 열고 그 자리로 간다. */
+private fun documentRoute(projectId: String, documentId: String, role: String, spanId: String?): String {
+    val span = spanId?.let { "&span=${Uri.encode(it)}" }.orEmpty()
+    return "p/${Uri.encode(projectId)}/d/${Uri.encode(documentId)}?role=$role$span"
 }
 
 /** 확인·정정은 소유자·검토자만 한다(server도 같은 규칙으로 막는다). */

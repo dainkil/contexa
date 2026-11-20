@@ -41,8 +41,8 @@ import com.contexa.android.api.Source
 import com.contexa.android.api.Verdict
 import com.contexa.android.ui.components.PrimaryButton
 import com.contexa.android.ui.components.SecondaryButton
+import com.contexa.android.ui.components.SourceQuote
 import com.contexa.android.ui.components.Tag
-import com.contexa.android.ui.theme.evidence
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -246,42 +246,6 @@ private fun StatusTag(status: ReviewStatus) {
         )
         StatusTone.CANDIDATE -> Tag(label, color = MaterialTheme.colorScheme.tertiary)
         StatusTone.CLOSED -> Tag(label)
-    }
-}
-
-/** 근거 발언 원문. 누르면 원문 뷰어에서 그 발언을 연다. */
-@Composable
-private fun SourceQuote(source: Source, documentTitle: String?, onOpen: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.evidence, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 10.dp)) {
-            Text(
-                source.text,
-                style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Content),
-                modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                itemVerticalAlignment = Alignment.CenterVertically,
-            ) {
-                source.speaker?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            textDirection = TextDirection.Content,
-                        ),
-                    )
-                }
-                Text(
-                    "${documentTitle ?: "문서"} · ${source.seq}번 발언",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextButton(onClick = onOpen) {
-                    Text("원문에서 보기", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
-                }
-            }
-        }
     }
 }
 
