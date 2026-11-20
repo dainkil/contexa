@@ -9,12 +9,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.contexa.android.api.ProjectSummary
+import com.contexa.android.ui.components.PrimaryButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -132,13 +131,7 @@ fun ProjectsScreen(viewModel: ProjectsViewModel, email: String, onOpen: (Project
                         modifier = Modifier.fillMaxWidth(),
                     )
                     state.createError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    Button(onClick = submit, enabled = title.isNotBlank() && !state.creating) {
-                        if (state.creating) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        } else {
-                            Text("만들기")
-                        }
-                    }
+                    PrimaryButton("만들기", onClick = submit, enabled = title.isNotBlank(), loading = state.creating)
                 }
             }
         }
@@ -149,7 +142,7 @@ fun ProjectsScreen(viewModel: ProjectsViewModel, email: String, onOpen: (Project
 private fun ProjectRow(project: ProjectSummary, onClick: () -> Unit) {
     OutlinedCard(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(20.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {

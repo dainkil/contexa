@@ -44,3 +44,9 @@ server 설정은 바꾸지 않는다.
 - `gradle/libs.versions.toml` — 라이브러리 버전.
 - `app/src/main/res/xml/network_security_config.xml` — HTTPS만 허용. `app/src/debug/`의 같은 이름 파일이 개발 빌드에서만 이 컴퓨터로 가는 평문 HTTP를 연다.
 - `app/src/main/java/com/contexa/android/` — 앱 코드.
+  - `api/` — server와 주고받는 타입과 호출. `session/` — 로그인 토큰 보관.
+  - `ui/theme/` — 색·글자·모서리. 모양은 developer.android.com을 따른다(흰 바탕, 테두리 카드, 초록 알약 버튼).
+  - `ui/components/` — 여러 화면이 같이 쓰는 버튼·꼬리표·전체 화면 입력 창.
+  - `ui/auth/`, `ui/projects/`, `ui/documents/`(자료함·원문 뷰어) — 화면.
+
+AI 일꾼(`ai/`)이 꺼져 있으면 올린 문서는 "처리 대기"에 머문다. 30초가 지나면 앱이 일꾼을 확인하라고 안내한다.

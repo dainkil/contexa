@@ -7,6 +7,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.contexa.android.api.AuthApi
+import com.contexa.android.api.DocumentApi
 import com.contexa.android.api.buildHttpClient
 import com.contexa.android.api.buildRetrofit
 import com.contexa.android.session.KeystoreTokenCipher
@@ -33,6 +34,7 @@ class AppContainer(context: Context) {
     )
 
     val authApi: AuthApi = retrofit.create(AuthApi::class.java)
+    val documentApi: DocumentApi = retrofit.create(DocumentApi::class.java)
 
     init {
         appScope.launch { session.load() }

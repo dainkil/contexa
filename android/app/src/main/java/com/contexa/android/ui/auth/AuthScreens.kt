@@ -7,13 +7,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -33,6 +30,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.contexa.android.ui.components.PrimaryButton
 
 @Composable
 fun SignInScreen(viewModel: AuthViewModel, expired: Boolean, onGoSignUp: () -> Unit) {
@@ -174,11 +172,5 @@ private fun ServerError(message: String?) {
 
 @Composable
 private fun SubmitButton(label: String, loading: Boolean, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
-        if (loading) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-        } else {
-            Text(label)
-        }
-    }
+    PrimaryButton(label, onClick = onClick, loading = loading, modifier = Modifier.fillMaxWidth())
 }
