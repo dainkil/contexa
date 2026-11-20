@@ -60,13 +60,19 @@ fun SecondaryButton(label: String, onClick: () -> Unit, modifier: Modifier = Mod
     }
 }
 
-/** 작은 꼬리표(종류·언어·"나만 보기" 등). */
+/** 작은 꼬리표(종류·언어·상태 등). */
 @Composable
-fun Tag(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+fun Tag(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    /** 칠할 바탕. 없으면 테두리만 그린다. */
+    container: Color? = null,
+) {
     Surface(
         shape = CircleShape,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        color = Color.Transparent,
+        border = if (container == null) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
+        color = container ?: Color.Transparent,
         modifier = modifier,
     ) {
         Text(

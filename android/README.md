@@ -47,6 +47,8 @@ server 설정은 바꾸지 않는다.
   - `api/` — server와 주고받는 타입과 호출. `session/` — 로그인 토큰 보관.
   - `ui/theme/` — 색·글자·모서리. 모양은 developer.android.com을 따른다(흰 바탕, 테두리 카드, 초록 알약 버튼).
   - `ui/components/` — 여러 화면이 같이 쓰는 버튼·꼬리표·전체 화면 입력 창.
-  - `ui/auth/`, `ui/projects/`, `ui/documents/`(자료함·원문 뷰어) — 화면.
+  - `ui/auth/`, `ui/projects/` — 로그인과 프로젝트 고르기.
+  - `ui/project/` — 프로젝트 안의 아래 탭(자료함·검토함·질문·맥락). 질문과 맥락은 아직 빈 자리다.
+  - `ui/documents/`(자료함·원문 뷰어), `ui/reviews/`(검토함) — 화면과 그 규칙.
 
 AI 일꾼(`ai/`)이 꺼져 있으면 올린 문서는 "처리 대기"에 머문다. 30초가 지나면 앱이 일꾼을 확인하라고 안내한다.

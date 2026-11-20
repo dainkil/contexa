@@ -116,3 +116,66 @@ class DocumentApiTest {
         assertEquals("""{"expectedRevision":2,"text":"고친 발언"}""", request.body?.utf8())
     }
 }
+
+class ReviewApiTest {
+
+    private lateinit var server: MockWebServer
+    private lateinit var api: ReviewApi
+
+    @Before
+    fun setUp() {
+        server = MockWebServer()
+        server.start()
+        api = buildRetrofit(
+            server.url("/api/v1/").toString(),
+            buildHttpClient(token = { "abc" }, onUnauthorized = {}),
+        ).create(ReviewApi::class.java)
+    }
+
+    @After
+    fun tearDown() {
+        server.close()
+    }
+
+    private fun json(body: String) =
+        MockResponse.Builder().code(200).addHeader("Content-Type", "application/json").body(body).build()
+
+    private val item =
+        """{"id":"r1","version":4,"state":"DONE","owner":{"type":"SPAN","id":"s1","revision":1},"card":null,"edges":[],"related":[],"sources":[]}"""
+
+    @Test
+    fun `검토함 - 준 조건만 주소에 붙이고, 카드 없는 묶음도 푼다`() = runBlocking {
+        repeat(2) { server.enqueue(json("""{"items":[$item],"next":"cursor-1"}""")) }
+
+        val page = api.list("p1", ReviewState.OPEN)
+        api.list("p1", ReviewState.DONE, ownerType = NodeType.TASK, after = "cursor-1")
+
+        assertNull(page.items.single().card)
+        assertEquals("cursor-1", page.next)
+        assertEquals("state=OPEN", server.takeRequest().url.encodedQuery)
+        assertEquals("state=DONE&ownerType=TASK&after=cursor-1", server.takeRequest().url.encodedQuery)
+    }
+
+    @Test
+    fun `판단 - 없는 칸은 빼고, 지운 날짜는 null로 보낸다`() = runBlocking {
+        server.enqueue(json("""{"item":$item,"impacts":[]}"""))
+
+        api.act(
+            "p1",
+            "r1",
+            ReviewActionRequest(
+                card = Verdict.CONFIRM,
+                corrections = mapOf("title" to kotlinx.serialization.json.JsonPrimitive("포스터 인쇄"), "dueAt" to kotlinx.serialization.json.JsonNull),
+                expectedVersion = 3,
+                idempotencyKey = "r1:3:abc",
+            ),
+        )
+
+        val request = server.takeRequest()
+        assertEquals("/api/v1/projects/p1/reviews/r1/actions", request.url.encodedPath)
+        assertEquals(
+            """{"card":"CONFIRM","corrections":{"title":"포스터 인쇄","dueAt":null},"expectedVersion":3,"idempotencyKey":"r1:3:abc"}""",
+            request.body?.utf8(),
+        )
+    }
+}

@@ -15,7 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** 기기에서 읽어 들일 수 있는 가장 큰 텍스트 파일(웹과 같다). */
+/** 기기에서 읽어 들일 수 있는 가장 큰 텍스트 파일. */
 const val MAX_TEXT_FILE_BYTES = 5 * 1024 * 1024
 
 const val NOT_TEXT_MESSAGE = "텍스트(.txt) 파일만 불러올 수 있습니다. PDF·Word는 아직 지원하지 않습니다."

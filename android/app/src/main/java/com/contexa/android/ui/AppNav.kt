@@ -24,8 +24,7 @@ import com.contexa.android.ui.auth.SignInScreen
 import com.contexa.android.ui.auth.SignUpScreen
 import com.contexa.android.ui.documents.DocumentViewerScreen
 import com.contexa.android.ui.documents.DocumentViewerViewModel
-import com.contexa.android.ui.documents.DocumentsScreen
-import com.contexa.android.ui.documents.DocumentsViewModel
+import com.contexa.android.ui.project.ProjectScreen
 import com.contexa.android.ui.projects.ProjectsScreen
 import com.contexa.android.ui.projects.ProjectsViewModel
 
@@ -72,19 +71,22 @@ private fun MainNav(email: String) {
             )
         }
 
-        // 프로젝트 안. 지금은 자료함만 있고, 검토함·질문·맥락은 다음 단계에서 하단 탭으로 붙인다.
+        // 프로젝트 안. 아래 탭으로 자료함·검토함·질문·맥락을 오간다.
         composable(
             "p/{projectId}?title={title}&role={role}",
             arguments = listOf(textArg("title"), textArg("role")),
         ) { entry ->
             val projectId = entry.arguments?.getString("projectId").orEmpty()
             val role = entry.arguments?.getString("role").orEmpty()
-            val viewModel = appViewModel { DocumentsViewModel(it.documentApi, projectId) }
-            DocumentsScreen(
-                viewModel = viewModel,
-                projectTitle = entry.arguments?.getString("title").orEmpty(),
+            ProjectScreen(
+                projectId = projectId,
+                title = entry.arguments?.getString("title").orEmpty(),
+                canReview = canReview(role),
                 onBack = { nav.popBackStack() },
-                onOpen = { documentId -> nav.navigate("p/${Uri.encode(projectId)}/d/${Uri.encode(documentId)}?role=$role") },
+                onOpenDocument = { documentId, spanId ->
+                    val span = spanId?.let { "&span=${Uri.encode(it)}" }.orEmpty()
+                    nav.navigate("p/${Uri.encode(projectId)}/d/${Uri.encode(documentId)}?role=$role$span")
+                },
             )
         }
 
@@ -106,13 +108,15 @@ private fun MainNav(email: String) {
             val viewModel = appViewModel { DocumentViewerViewModel(it.documentApi, projectId, documentId, span) }
             DocumentViewerScreen(
                 viewModel = viewModel,
-                // 발언 정정은 소유자·검토자만 한다(server도 같은 규칙으로 막는다).
-                canRevise = role == Role.OWNER.name || role == Role.REVIEWER.name,
+                canRevise = canReview(role),
                 onBack = { nav.popBackStack() },
             )
         }
     }
 }
+
+/** 확인·정정은 소유자·검토자만 한다(server도 같은 규칙으로 막는다). */
+private fun canReview(role: String) = role == Role.OWNER.name || role == Role.REVIEWER.name
 
 /** 주소 뒤에 붙는 선택 값. 없으면 빈 글자. */
 private fun textArg(name: String) = navArgument(name) {

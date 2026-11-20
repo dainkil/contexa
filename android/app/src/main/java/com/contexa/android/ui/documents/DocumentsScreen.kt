@@ -13,13 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,15 +34,9 @@ import com.contexa.android.api.Visibility
 import com.contexa.android.ui.components.PrimaryButton
 import com.contexa.android.ui.components.Tag
 
-/** 자료함: 올린 문서와 가장 최근 판의 처리 상태. 처리 중이면 저절로 갱신된다. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 자료함 탭: 올린 문서와 가장 최근 판의 처리 상태. 처리 중이면 저절로 갱신된다. */
 @Composable
-fun DocumentsScreen(
-    viewModel: DocumentsViewModel,
-    projectTitle: String,
-    onBack: () -> Unit,
-    onOpen: (documentId: String) -> Unit,
-) {
+fun DocumentsScreen(viewModel: DocumentsViewModel, onOpen: (documentId: String) -> Unit, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     // 화면이 보이는 동안에만 불러온다. 다른 화면에서 돌아오면 다시 시작한다.
@@ -54,59 +45,43 @@ fun DocumentsScreen(
         owner.repeatOnLifecycle(Lifecycle.State.STARTED) { viewModel.watch() }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        projectTitle,
-                        style = MaterialTheme.typography.titleLarge.copy(textDirection = TextDirection.Content),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = { TextButton(onClick = onBack) { Text("프로젝트") } },
-            )
-        },
-    ) { inner ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(inner),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("문서와 전사문", style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    "회의록과 업무 문서를 올리고, 처리 상태와 원문을 확인합니다.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                PrimaryButton("문서 올리기", onClick = viewModel::openForm, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+
+        state.loadError?.let { message ->
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("문서와 전사문", style = MaterialTheme.typography.headlineSmall)
-                    Text(
-                        "회의록과 업무 문서를 올리고, 처리 상태와 원문을 확인합니다.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    PrimaryButton("문서 올리기", onClick = viewModel::openForm, modifier = Modifier.padding(top = 4.dp))
+                Column {
+                    Text(message, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = viewModel::reload) { Text("다시 불러오기") }
+                }
+            }
+        }
+
+        when {
+            state.loading -> item {
+                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
             }
 
-            state.loadError?.let { message ->
-                item {
-                    Column {
-                        Text(message, color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = viewModel::reload) { Text("다시 불러오기") }
-                    }
-                }
-            }
+            state.documents.isEmpty() && state.loadError == null -> item { EmptyDocuments() }
 
-            when {
-                state.loading -> item {
-                    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-
-                state.documents.isEmpty() && state.loadError == null -> item { EmptyDocuments() }
-
-                else -> items(state.documents, key = { it.document.id }) { row ->
-                    DocumentRow(row, onClick = { onOpen(row.document.id) })
-                }
+            else -> items(state.documents, key = { it.document.id }) { row ->
+                DocumentRow(row, onClick = { onOpen(row.document.id) })
             }
         }
     }
