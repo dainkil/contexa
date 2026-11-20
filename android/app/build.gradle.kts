@@ -22,10 +22,11 @@ android {
 
     buildTypes {
         debug {
-            // 에뮬레이터에서 10.0.2.2는 이 컴퓨터의 127.0.0.1이다. server는 127.0.0.1:8090에만 붙어 있다.
-            // 실제 기기는 `adb reverse tcp:8090 tcp:8090` 뒤 -PapiBaseUrl=http://127.0.0.1:8090/api/v1/ 로 빌드한다.
+            // server는 이 컴퓨터의 127.0.0.1:8090에만 붙어 있다. `adb reverse tcp:8090 tcp:8090`으로
+            // 기기(에뮬레이터 포함)의 8090 포트를 이 컴퓨터로 돌려서 붙는다(reversePort 작업).
+            // 에뮬레이터의 10.0.2.2는 쓰지 않는다: 에뮬레이터 37.3에서 앱의 연결이 시간 초과로 실패했다.
             val apiBaseUrl = providers.gradleProperty("apiBaseUrl")
-                .getOrElse("http://10.0.2.2:8090/api/v1/")
+                .getOrElse("http://127.0.0.1:8090/api/v1/")
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         }
         release {
@@ -72,3 +73,13 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
 }
+
+// 연결된 기기의 8090 포트를 이 컴퓨터의 server로 돌린다. 기기를 다시 켜면 다시 해야 한다.
+val reversePort by tasks.registering(Exec::class) {
+    group = "contexa"
+    description = "adb reverse tcp:8090 tcp:8090"
+    executable = androidComponents.sdkComponents.adb.get().asFile.absolutePath
+    args("reverse", "tcp:8090", "tcp:8090")
+}
+
+tasks.matching { it.name == "installDebug" }.configureEach { dependsOn(reversePort) }

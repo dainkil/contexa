@@ -3,9 +3,7 @@
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
-        <!-- 에뮬레이터에서 본 이 컴퓨터 -->
-        <domain includeSubdomains="false">10.0.2.2</domain>
-        <!-- 실제 기기 + adb reverse -->
+        <!-- adb reverse로 돌린 포트 -->
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>
     </domain-config>

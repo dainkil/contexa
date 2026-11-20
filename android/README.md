@@ -21,13 +21,14 @@ docker compose up -d db                 # 저장소 최상위에서
 (cd server && ./gradlew bootRun)        # 127.0.0.1:8090
 ```
 
-- **에뮬레이터**: Android Studio에서 Run. 앱은 `http://10.0.2.2:8090/api/v1/`로 붙는다. 에뮬레이터에서 `10.0.2.2`는 이 컴퓨터의 `127.0.0.1`이다.
-- **실제 기기**(USB 연결): 기기의 8090 포트를 이 컴퓨터로 돌린 뒤 주소를 바꿔 설치한다.
+앱은 `http://127.0.0.1:8090/api/v1/`로 붙는다. 기기(에뮬레이터 포함)의 8090 포트를 이 컴퓨터로 돌려야 하고, 기기를 다시 켤 때마다 다시 해야 한다.
 
-  ```sh
-  adb reverse tcp:8090 tcp:8090
-  ./gradlew :app:installDebug -PapiBaseUrl=http://127.0.0.1:8090/api/v1/
-  ```
+```sh
+./gradlew :app:installDebug     # 포트를 돌리고(reversePort) 설치한다
+./gradlew :app:reversePort      # Android Studio의 Run으로 설치했다면 이것만 따로
+```
+
+에뮬레이터의 `10.0.2.2` 주소는 쓰지 않는다. 에뮬레이터 37.3에서 앱의 연결이 시간 초과로 실패했다.
 
 server 설정은 바꾸지 않는다.
 
