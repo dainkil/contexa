@@ -88,4 +88,19 @@ class ContextApiTest {
         assertEquals("/api/v1/projects/p1/tasks/k1/acceptance", acceptance.url.encodedPath)
         assertEquals("""{"accepted":false}""", acceptance.body?.utf8())
     }
+
+    @Test
+    fun `계정 연결 - 끊을 때는 이메일을 빼고 보낸다`() = runBlocking {
+        val changed = """{"node":{"type":"ENTITY","id":"n1","revision":2},"impacts":[]}"""
+        server.enqueue(json(changed))
+        server.enqueue(json(changed))
+
+        api.linkAccount("p1", "n1", AccountRequest("jihun@example.com"))
+        api.linkAccount("p1", "n1", AccountRequest(null))
+
+        val link = server.takeRequest()
+        assertEquals("/api/v1/projects/p1/entities/n1/account", link.url.encodedPath)
+        assertEquals("""{"email":"jihun@example.com"}""", link.body?.utf8())
+        assertEquals("{}", server.takeRequest().body?.utf8())
+    }
 }

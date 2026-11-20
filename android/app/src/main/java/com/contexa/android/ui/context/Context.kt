@@ -68,6 +68,21 @@ fun taskRows(packet: ContextPacket): List<TaskRow> {
     }
 }
 
+/** 인물 한 명. linked = 이 프로젝트의 계정에 연결돼 있다(누구의 계정인지는 server가 알려 주지 않는다). */
+data class PersonRow(val person: Fact) {
+    val linked: Boolean get() = person.states["accountLinked"] == "true"
+
+    /** server는 확인된 인물 카드에만 계정을 연결해 준다. 끊는 것은 언제나 된다. */
+    val canLink: Boolean get() = person.status == ReviewStatus.CONFIRMED
+}
+
+/** 현황에 실려 온 인물·기관 가운데 사람만. 기관에는 계정을 연결할 수 없다. */
+fun personRows(packet: ContextPacket): List<PersonRow> =
+    packet.facts.filter { it.node.type == NodeType.ENTITY && it.states["kind"] == "PERSON" }.map(::PersonRow)
+
+/** 연결할 이메일로 보낼 수 있나. 형식은 server가 가입 여부로 가린다. */
+fun canSubmitEmail(text: String): Boolean = text.trim().let { it.length >= 3 && '@' in it && ' ' !in it }
+
 /** 지금 상태에서 고를 수 있는 다른 상태. */
 fun nextStatuses(current: TaskStatus?): List<TaskStatus> = TaskStatus.entries.filter { it != current }
 

@@ -1,6 +1,7 @@
 package com.contexa.android.ui.context
 
 import com.contexa.android.api.AcceptanceRequest
+import com.contexa.android.api.AccountRequest
 import com.contexa.android.api.Changed
 import com.contexa.android.api.ContextApi
 import com.contexa.android.api.ContextPacket
@@ -91,9 +92,10 @@ private class FakeContextApi : ContextApi {
     val mineAsked = mutableListOf<Boolean>()
     val statusSent = mutableListOf<TaskStatusRequest>()
     val accepted = mutableListOf<Boolean>()
+    val linked = mutableListOf<Pair<String, String?>>()
     var failStatus: Exception? = null
 
-    override suspend fun state(projectId: String, topicId: String?) = packet(listOf(topic, item, decided))
+    override suspend fun state(projectId: String, topicId: String?) = packet(listOf(topic, item, decided, person))
     override suspend fun history(projectId: String, decisionItemId: String) = error("쓰지 않는다")
     override suspend fun trace(projectId: String, type: NodeType, id: String, direction: Direction, depth: Int) =
         error("쓰지 않는다")
@@ -112,6 +114,11 @@ private class FakeContextApi : ContextApi {
     override suspend fun acceptance(projectId: String, taskId: String, request: AcceptanceRequest): Changed {
         accepted += request.accepted
         return Changed(ref(NodeType.TASK, taskId, 4))
+    }
+
+    override suspend fun linkAccount(projectId: String, entityId: String, request: AccountRequest): Changed {
+        linked += entityId to request.email
+        return Changed(ref(NodeType.ENTITY, entityId, 2))
     }
 }
 
@@ -254,5 +261,39 @@ class ContextTest {
         assertEquals(listOf(false, true, true), api.mineAsked.toList())
         assertEquals(listOf(true), api.accepted.toList())
         assertEquals("수락했습니다.", viewModel.state.value.notice)
+    }
+
+    @Test
+    fun `사람만 고르고, 확인된 사람에게만 계정을 연결할 수 있다`() {
+        val org = fact(NodeType.ENTITY, "n2", "NUR Labs", mapOf("kind" to "ORGANIZATION"))
+        val linked = fact(NodeType.ENTITY, "n3", "민지", mapOf("kind" to "PERSON", "accountLinked" to "true"))
+        val candidate = fact(NodeType.ENTITY, "n4", "Ahmed", mapOf("kind" to "PERSON", "accountLinked" to "false"), ReviewStatus.CANDIDATE)
+
+        val rows = personRows(packet(listOf(person, org, linked, candidate)))
+
+        assertEquals(listOf("지훈", "민지", "Ahmed"), rows.map { it.person.label })
+        assertEquals(listOf(false, true, false), rows.map { it.linked })
+        assertEquals(listOf(true, true, false), rows.map { it.canLink })
+        assertTrue(canSubmitEmail(" a@b.kr "))
+        assertFalse(canSubmitEmail("지훈"))
+        assertFalse(canSubmitEmail("a b@c"))
+    }
+
+    @Test
+    fun `계정을 연결할 때 이메일을 다듬어 보내고, 끊을 때는 이메일 없이 보낸다`() = runTest {
+        val api = FakeContextApi()
+        val viewModel = ContextViewModel(api, "p1")
+        viewModel.reload()
+        advanceUntilIdle()
+        val row = viewModel.state.value.people.single()
+
+        viewModel.linkAccount(row, " jihun@example.com ")
+        advanceUntilIdle()
+        viewModel.unlinkAccount(row)
+        advanceUntilIdle()
+
+        assertEquals(listOf<Pair<String, String?>>("n1" to "jihun@example.com", "n1" to null), api.linked.toList())
+        assertEquals("지훈의 계정 연결을 끊었습니다.", viewModel.state.value.notice)
+        assertEquals(3, api.mineAsked.size)
     }
 }

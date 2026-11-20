@@ -47,6 +47,17 @@ interface ContextApi {
         @Path("taskId") taskId: String,
         @Body request: AcceptanceRequest,
     ): Changed
+
+    /**
+     * 이 인물이 이 이메일의 계정이라고 확인한다. email이 null이면 연결을 끊는다. 소유자·검토자만.
+     * 확인된 인물 카드에만, 이 프로젝트 구성원의 계정만 연결된다. 한 계정은 한 인물에게만.
+     */
+    @POST("projects/{projectId}/entities/{entityId}/account")
+    suspend fun linkAccount(
+        @Path("projectId") projectId: String,
+        @Path("entityId") entityId: String,
+        @Body request: AccountRequest,
+    ): Changed
 }
 
 /** expectedRevision = 내가 읽은 할 일의 revision. 그사이 바뀌었으면 409(STALE). */
@@ -55,3 +66,7 @@ data class TaskStatusRequest(val status: TaskStatus, val expectedRevision: Int)
 
 @Serializable
 data class AcceptanceRequest(val accepted: Boolean)
+
+/** email을 빼면(null) 연결을 끊는다. */
+@Serializable
+data class AccountRequest(val email: String? = null)

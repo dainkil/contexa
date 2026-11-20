@@ -12,7 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -48,12 +52,14 @@ import com.contexa.android.ui.reviews.typeLabel
 /**
  * 맥락 탭: 지금 결정된 것과 남은 것, 그리고 할 일.
  *
+ * @param canReview     소유자·검토자인가. 인물에 계정을 연결하는 것은 이들만 한다
  * @param onOpenHistory 결정 항목의 이력을 연다
  * @param onOpenTrace   카드의 근거·영향을 따라가 본다
  */
 @Composable
 fun ContextScreen(
     viewModel: ContextViewModel,
+    canReview: Boolean,
     onNotice: (String) -> Unit,
     onOpenHistory: (itemId: String) -> Unit,
     onOpenTrace: (NodeRef) -> Unit,
@@ -104,6 +110,7 @@ fun ContextScreen(
         when (state.section) {
             ContextSection.DECISIONS -> decisions(state, onOpenHistory, onOpenTrace)
             ContextSection.TASKS -> tasks(state, viewModel, onOpenTrace)
+            ContextSection.PEOPLE -> people(state, viewModel, canReview)
         }
     }
 }
@@ -243,7 +250,7 @@ private fun LazyListScope.tasks(state: ContextUiState, viewModel: ContextViewMod
         state.loadError == null -> item {
             Text(
                 if (state.mine) {
-                    "내게 맡겨진 할 일이 없습니다. 내 계정이 확인된 인물 카드에 연결돼 있어야 여기에 나타납니다."
+                    "내게 맡겨진 할 일이 없습니다. 내 계정이 인물에 연결돼 있어야 여기에 나타납니다. 연결은 소유자·검토자가 \"사람\"에서 합니다."
                 } else {
                     "아직 할 일이 없습니다. 검토함에서 AI 후보를 확인하면 여기에 나타납니다."
                 },
@@ -326,6 +333,137 @@ private fun TaskCard(
                 TextButton(onClick = onOpenTrace) { Text("근거 따라가기") }
             }
         }
+    }
+}
+
+private fun LazyListScope.people(state: ContextUiState, viewModel: ContextViewModel, canReview: Boolean) {
+    item {
+        Text(
+            "회의에 나온 사람을 앱 계정에 연결합니다. 연결하면 그 사람이 맡은 일이 그 계정의 \"내 할 일\"에 나타나고, 본인이 수락·거절할 수 있습니다.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    when {
+        state.people.isNotEmpty() -> items(state.people, key = { "person:${it.person.node.id}" }) { row ->
+            PersonCard(
+                row = row,
+                canReview = canReview,
+                busy = state.busyId == row.person.node.id,
+                enabled = state.busyId == null,
+                onLink = { viewModel.linkAccount(row, it) },
+                onUnlink = { viewModel.unlinkAccount(row) },
+            )
+        }
+
+        state.loading -> item { Loading() }
+
+        state.loadError == null -> item {
+            Text(
+                "아직 사람이 없습니다. 검토함에서 인물 후보를 확인하면 여기에 나타납니다.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PersonCard(
+    row: PersonRow,
+    canReview: Boolean,
+    busy: Boolean,
+    enabled: Boolean,
+    onLink: (email: String) -> Unit,
+    onUnlink: () -> Unit,
+) {
+    var linking by remember { mutableStateOf(false) }
+    var unlinking by remember { mutableStateOf(false) }
+
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chips {
+                if (row.linked) {
+                    Tag(
+                        "계정 연결됨",
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        container = MaterialTheme.colorScheme.primaryContainer,
+                    )
+                } else {
+                    Tag("계정 없음")
+                }
+                ReviewStatusTag(row.person)
+            }
+            Text(
+                row.person.label,
+                style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Content),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            when {
+                !canReview -> Unit
+                busy -> Text("바꾸는 중…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                row.linked -> Chips {
+                    if (row.canLink) TextButton(onClick = { linking = true }, enabled = enabled) { Text("다른 계정으로 바꾸기") }
+                    TextButton(onClick = { unlinking = true }, enabled = enabled) { Text("연결 끊기") }
+                }
+                row.canLink -> SecondaryButton("계정 연결", onClick = { linking = true }, enabled = enabled)
+                else -> Text(
+                    "확인된 사람에게만 계정을 연결할 수 있습니다. 먼저 검토함에서 이 사람을 확인하세요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+
+    if (linking) {
+        var email by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { linking = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("계정 연결") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("${row.person.label}의 가입 이메일을 적습니다. 이 프로젝트의 구성원이어야 하고, 한 계정은 한 사람에게만 연결됩니다.")
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it },
+                        label = { Text("이메일") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        linking = false
+                        onLink(email)
+                    },
+                    enabled = canSubmitEmail(email),
+                ) { Text("연결") }
+            },
+            dismissButton = { TextButton(onClick = { linking = false }) { Text("취소") } },
+        )
+    }
+
+    if (unlinking) {
+        AlertDialog(
+            onDismissRequest = { unlinking = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("연결을 끊을까요?") },
+            text = { Text("${row.person.label}이(가) 맡은 일이 그 계정의 \"내 할 일\"에서 빠지고, 그 계정으로는 수락·거절을 할 수 없게 됩니다.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        unlinking = false
+                        onUnlink()
+                    },
+                ) { Text("연결 끊기") }
+            },
+            dismissButton = { TextButton(onClick = { unlinking = false }) { Text("취소") } },
+        )
     }
 }
 

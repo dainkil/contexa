@@ -141,6 +141,7 @@ fun ProjectScreen(
 
             ProjectTab.CONTEXT -> ContextScreen(
                 viewModel = appViewModel(key = "context") { ContextViewModel(it.contextApi, projectId) },
+                canReview = canReview,
                 onNotice = { message -> scope.launch { snackbar.showSnackbar(message) } },
                 onOpenHistory = onOpenHistory,
                 onOpenTrace = onOpenTrace,

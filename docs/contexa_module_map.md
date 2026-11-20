@@ -599,18 +599,18 @@ server.py    ServerClient            뒷문 클라이언트 (표준 라이브러
 Http.kt           OkHttp·Retrofit 만들기. 요청마다 Authorization: Bearer, 401이면 로그인 화면으로
 Models.kt         server 응답 타입. 원본은 Java contract·컨트롤러 record
 ContextApi.kt     state · history · trace · tasks                              (ContextController)
-                  taskStatus · acceptance                                      (ReviewController)
+                  taskStatus · acceptance · linkAccount                        (ReviewController)
 ReviewApi.kt      list · act                                                   (ReviewController)
 AuthApi.kt        signUp · login · listProjects · createProject                   (AuthController)
 DocumentApi.kt    upload · uploadVersion · list · open · reviseSpan            (DocumentController)
 GenerationApi.kt  ask · list · get                                             (GenerationController)
 ```
-- 아직 부르지 않는 것: `searchEvidence`, `resolveEntity`, `nameCard`, `verifyCurrent`, `satisfyCondition`, 이름 확인(`/entities/{id}/names`), 계정 연결(`/entities/{id}/account`), 구성원 관리. 계정 연결이 앱에 없어서 "내 할 일"과 담당 수락은 다른 경로로 계정을 인물 카드에 연결해야 쓸 수 있다.
+- 아직 부르지 않는 것: `searchEvidence`, `resolveEntity`, `nameCard`, `verifyCurrent`, `satisfyCondition`, 이름 확인(`/entities/{id}/names`), 구성원 관리.
 - 화면은 프로젝트 목록 → 프로젝트 안의 아래 탭 네 개(자료함·검토함·질문·맥락)다. 실제 권한 검사는 server가 요청마다 한다.
 - 자료함: 목록은 처리 중인 문서가 있으면 2초마다 다시 읽는다. 원문 뷰어는 판을 고를 수 있고, 근거 링크로 열면(`span=발언 id`) 그 발언이 든 판을 열고 노란색으로 칠한다. 소유자·검토자에게만 발언마다 정정 버튼이 있고, 내가 본 발언 버전을 함께 보낸다.
 - 검토함: 확인할 것(OPEN)·처리한 것(DONE), 종류 거르기. 묶음마다 카드·근거 원문·딸린 줄을 보여 주고, 확인·보류·거절·철회와 정정(바뀐 값만 `corrections`로)을 보낸다. 줄은 따로 고르지 않으면 카드 판단을 따른다. `idempotencyKey`는 `묶음 id:버전:요청 내용 해시`라 같은 요청을 두 번 보내도 한 번만 처리되고, 그사이 묶음이 바뀌었으면 server가 409(STALE)로 막는다. 처리한 뒤에는 영향받는 카드 수를 알려 준다. 구성원(MEMBER)은 볼 수만 있다.
 - 질문: 답변 언어를 골라 묻거나 브리핑(`kind=BRIEFING`)을 받는다. 답이 써질 때까지 2초마다 다시 열어 보고(3분 상한), 본문의 `[1]`, `[2]`에 맞춘 인용을 누르면 원문 뷰어의 그 발언으로 간다. 참고한 카드가 그사이 바뀌었으면(`stale`) 경고를 띄운다.
-- 맥락: 현황(`state`)을 안건별 결정 항목과 "남은 것"으로 보여 주고, 항목의 이력(`history`)과 카드의 근거·영향(`trace`)을 연다. 할 일은 상태를 바꾸고(내가 읽은 revision을 함께 보냄), "내 할 일"에서는 담당을 수락·거절한다.
+- 맥락: 현황(`state`)을 안건별 결정 항목과 "남은 것"으로 보여 주고, 항목의 이력(`history`)과 카드의 근거·영향(`trace`)을 연다. 할 일은 상태를 바꾸고(내가 읽은 revision을 함께 보냄), "내 할 일"에서는 담당을 수락·거절한다. "사람"에서는 소유자·검토자가 확인된 인물 카드를 이메일로 계정에 연결하거나 끊는다(연결돼야 그 계정의 "내 할 일"이 채워진다).
 - 코드 구조와 실행 방법은 `android/README.md`.
 
 ## 부록 C. 함수 호출 순서

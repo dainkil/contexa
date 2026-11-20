@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.contexa.android.api.ContextApi
 import com.contexa.android.api.AcceptanceRequest
+import com.contexa.android.api.AccountRequest
 import com.contexa.android.api.ContextPacket
 import com.contexa.android.api.Direction
 import com.contexa.android.api.DocumentApi
@@ -18,7 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class ContextSection(val label: String) { DECISIONS("결정"), TASKS("할 일") }
+enum class ContextSection(val label: String) { DECISIONS("결정"), TASKS("할 일"), PEOPLE("사람") }
 
 data class ContextUiState(
     val section: ContextSection = ContextSection.DECISIONS,
@@ -29,7 +30,8 @@ data class ContextUiState(
     /** 내게 맡겨진 할 일만 본다. */
     val mine: Boolean = false,
     val tasks: List<TaskRow> = emptyList(),
-    /** 바꾸는 중인 할 일의 id. */
+    val people: List<PersonRow> = emptyList(),
+    /** 바꾸는 중인 할 일·인물의 id. */
     val busyId: String? = null,
     /** 한 번 보여 줄 알림. */
     val notice: String? = null,
@@ -57,6 +59,7 @@ class ContextViewModel(private val api: ContextApi, private val projectId: Strin
                         groups = decisionBoard(current),
                         open = openRows(current),
                         tasks = taskRows(tasks),
+                        people = personRows(current),
                     )
                 }
             } catch (e: CancellationException) {
@@ -77,20 +80,31 @@ class ContextViewModel(private val api: ContextApi, private val projectId: Strin
         reload()
     }
 
-    fun changeStatus(row: TaskRow, next: TaskStatus) = change(row) {
+    fun changeStatus(row: TaskRow, next: TaskStatus) = change(row.task.node.id) {
         val changed = api.taskStatus(projectId, row.task.node.id, TaskStatusRequest(next, row.task.node.revision))
         statusChangedMessage(next, changed.impacts.size)
     }
 
-    fun accept(row: TaskRow, accepted: Boolean) = change(row) {
+    fun accept(row: TaskRow, accepted: Boolean) = change(row.task.node.id) {
         api.acceptance(projectId, row.task.node.id, AcceptanceRequest(accepted))
         if (accepted) "수락했습니다." else "거절했습니다."
     }
 
-    /** 할 일 하나를 바꾸고 새로 읽는다. 조건이 따라 바뀔 수 있어 화면 전체를 다시 불러온다. */
-    private fun change(row: TaskRow, send: suspend () -> String) {
+    /** 이 인물이 이 이메일의 계정이라고 확인한다. 그 계정의 "내 할 일"에 이 인물이 맡은 일이 나온다. */
+    fun linkAccount(row: PersonRow, email: String) = change(row.person.node.id) {
+        api.linkAccount(projectId, row.person.node.id, AccountRequest(email.trim()))
+        "${row.person.label}에 계정을 연결했습니다."
+    }
+
+    fun unlinkAccount(row: PersonRow) = change(row.person.node.id) {
+        api.linkAccount(projectId, row.person.node.id, AccountRequest(null))
+        "${row.person.label}의 계정 연결을 끊었습니다."
+    }
+
+    /** 카드 하나를 바꾸고 새로 읽는다. 조건이 따라 바뀔 수 있어 화면 전체를 다시 불러온다. */
+    private fun change(id: String, send: suspend () -> String) {
         if (_state.value.busyId != null) return
-        _state.update { it.copy(busyId = row.task.node.id) }
+        _state.update { it.copy(busyId = id) }
         viewModelScope.launch {
             try {
                 val message = send()
