@@ -10,13 +10,21 @@ import org.springframework.web.bind.annotation.RestController;
 public class DevSeedController {
 
 	private final DevSeed seed;
+	private final DemoSeed demo;
 
-	public DevSeedController(DevSeed seed) {
+	public DevSeedController(DevSeed seed, DemoSeed demo) {
 		this.seed = seed;
+		this.demo = demo;
 	}
 
 	@PostMapping("/dev/seed")
 	public DevSeed.Seeded seed() {
 		return seed.seed();
+	}
+
+	/** 시연용: 정해진 계정과 "국제교류의 밤 준비" 프로젝트를 만든다. 이미 있으면 그대로 돌려준다. */
+	@PostMapping("/dev/demo")
+	public DemoSeed.Seeded demo() {
+		return demo.seed();
 	}
 }

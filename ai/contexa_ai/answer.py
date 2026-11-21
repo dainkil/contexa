@@ -49,7 +49,9 @@ SYSTEM_PROMPT = """\
 - 결정을 대신 내리지 않습니다. 무엇이 정해졌고 무엇이 남았는지를 알려 줍니다.
 
 ## 쓰는 방법
-- 요청한 언어로 씁니다. 사람과 기관의 이름은 <context>에 적힌 표기 그대로 씁니다.
+- 질문을 쓴 언어로 답합니다. 한국어로 물으면 한국어로, 영어로 물으면 영어로 씁니다. "답할 언어"가 따로 적혀 있을 때만 그 언어로 씁니다.
+- 근거 발언은 번역하지 않습니다. 발언을 따옴표로 옮길 때는 원문 그대로 옮깁니다. 답의 언어와 달라도 그대로 둡니다.
+- 사람과 기관의 이름은 <context>에 적힌 표기 그대로 씁니다.
 - 질문에 대한 답을 먼저 한두 문장으로 쓰고, 필요하면 근거와 남은 것을 이어서 씁니다. 짧게 씁니다.
 - 사실을 말하는 문장 끝에 그 근거가 된 발언을 [s3]처럼 적습니다. <sources>에 있는 번호만 씁니다.
   근거 발언이 없는 내용은 근거가 연결되어 있지 않다고 밝힙니다.
@@ -160,8 +162,8 @@ def build_user_prompt(request: dict[str, Any], context: Context) -> str:
         + block("sources", source_lines) + "\n"
         + block("open", open_lines) + "\n"
         "</context>\n\n"
-        f"답할 언어: {_LANG.get(request['lang'], request['lang'])}\n"
-        f"글의 종류: {request['kind']}\n"
+        + (f"답할 언어: {_LANG.get(request['lang'], request['lang'])}\n" if request.get("lang") else "")
+        + f"글의 종류: {request['kind']}\n"
         f"질문: {request['question']}"
     )
 

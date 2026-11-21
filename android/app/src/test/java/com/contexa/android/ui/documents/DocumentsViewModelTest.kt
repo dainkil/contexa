@@ -1,6 +1,11 @@
 package com.contexa.android.ui.documents
 
+import com.contexa.android.api.AcceptanceRequest
+import com.contexa.android.api.AccountRequest
 import com.contexa.android.api.Changed
+import com.contexa.android.api.ContextApi
+import com.contexa.android.api.ContextPacket
+import com.contexa.android.api.Direction
 import com.contexa.android.api.DocumentApi
 import com.contexa.android.api.DocumentInfo
 import com.contexa.android.api.DocumentInput
@@ -11,8 +16,12 @@ import com.contexa.android.api.IngestStarted
 import com.contexa.android.api.JobStatus
 import com.contexa.android.api.NETWORK_ERROR_MESSAGE
 import com.contexa.android.api.NewVersionRequest
+import com.contexa.android.api.NodeType
 import com.contexa.android.api.OpenedVersion
 import com.contexa.android.api.ReviseSpanRequest
+import com.contexa.android.api.Scope
+import com.contexa.android.api.ScopeView
+import com.contexa.android.api.TaskStatusRequest
 import com.contexa.android.api.VersionStatus
 import com.contexa.android.api.Visibility
 import java.io.IOException
@@ -48,6 +57,24 @@ private class FakeDocumentApi(private val lists: List<() -> List<DocumentStatus>
         error("쓰지 않는다")
     override suspend fun reviseSpan(projectId: String, spanId: String, request: ReviseSpanRequest): Changed =
         error("쓰지 않는다")
+}
+
+/** 할 일 읽기만 받는 가짜. 뷰어는 문서 처리가 끝난 뒤에 할 일을 읽는다. */
+private class FakeTasksApi : ContextApi {
+    var taskCalls = 0
+
+    override suspend fun tasks(projectId: String, mine: Boolean): ContextPacket {
+        taskCalls++
+        return ContextPacket("2026-11-21T00:00:00Z", Scope(projectId, ScopeView.TASKS))
+    }
+
+    override suspend fun state(projectId: String, topicId: String?): ContextPacket = error("쓰지 않는다")
+    override suspend fun history(projectId: String, decisionItemId: String): ContextPacket = error("쓰지 않는다")
+    override suspend fun trace(projectId: String, type: NodeType, id: String, direction: Direction, depth: Int): ContextPacket =
+        error("쓰지 않는다")
+    override suspend fun taskStatus(projectId: String, taskId: String, request: TaskStatusRequest): Changed = error("쓰지 않는다")
+    override suspend fun acceptance(projectId: String, taskId: String, request: AcceptanceRequest): Changed = error("쓰지 않는다")
+    override suspend fun linkAccount(projectId: String, entityId: String, request: AccountRequest): Changed = error("쓰지 않는다")
 }
 
 private fun row(latest: VersionStatus?) = DocumentStatus(INFO, versionCount = 1, latest = latest)
@@ -100,12 +127,15 @@ class DocumentsViewModelTest {
     @Test
     fun `뷰어 - 근거 발언으로 열고, 판을 고르면 그 판만 요청한다`() = runTest {
         val api = FakeDocumentApi().apply { views = listOf(view(running), view(done)) }
-        val viewModel = DocumentViewerViewModel(api, "p1", "d1", spanId = "s9")
+        val tasks = FakeTasksApi()
+        val viewModel = DocumentViewerViewModel(api, tasks, "p1", "d1", spanId = "s9")
 
         backgroundScope.launch { viewModel.watch() }
         settle()
-        // 처리 중이라 한 번 더 불러왔고, 끝난 뒤에는 멈췄다.
+        // 처리 중이라 한 번 더 불러왔고, 끝난 뒤에는 멈췄다. 할 일은 처리가 끝난 뒤에 한 번 읽는다.
         assertEquals(listOf<Pair<Int?, String?>>(null to "s9", null to "s9"), api.opened)
+        assertEquals(1, tasks.taskCalls)
+        assertEquals(emptyList<Any>(), viewModel.state.value.tasks)
 
         viewModel.openVersion(2)
         settle()

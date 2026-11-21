@@ -22,6 +22,6 @@ interface GenerationApi {
     suspend fun get(@Path("projectId") projectId: String, @Path("artifactId") artifactId: String): ArtifactView
 }
 
-/** kind를 빼면 server가 ANSWER로, lang을 빼면 ko로 본다. */
+/** kind를 빼면 server가 ANSWER로, lang을 빼면 질문을 쓴 언어로 답한다. */
 @Serializable
 data class AskRequest(val kind: GenKind? = null, val question: String, val lang: String? = null)

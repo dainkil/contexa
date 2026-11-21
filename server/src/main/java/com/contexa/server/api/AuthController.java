@@ -43,6 +43,13 @@ public class AuthController {
 		return Map.of("token", identity.login(request.email(), request.password()));
 	}
 
+	/** 로그인한 사람의 이메일과 이름. */
+	@GetMapping("/auth/me")
+	public IdentityAccess.Profile me(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false)
+			String authorization) {
+		return identity.profileOf(user(authorization));
+	}
+
 	/** 내가 속한 프로젝트. */
 	@GetMapping("/projects")
 	public List<ProjectSummary> projects(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false)

@@ -91,7 +91,7 @@ class AnswerFlowTest {
 		mvc.perform(leased(get("/internal/v1/jobs/" + jobId + "/request")))
 				.andExpect(jsonPath("$.question").value("인쇄 진행해도 돼?"))
 				.andExpect(jsonPath("$.kind").value("ANSWER"))
-				.andExpect(jsonPath("$.lang").value("ko"));
+				.andExpect(jsonPath("$.lang").doesNotExist());
 		mvc.perform(leased(post("/internal/v1/jobs/" + jobId + "/context/search"))
 				.contentType(MediaType.APPLICATION_JSON).content("{\"query\":\"인쇄 진행해도 돼?\"}"))
 				.andExpect(status().isOk())

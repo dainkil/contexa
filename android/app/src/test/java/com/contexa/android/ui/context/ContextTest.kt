@@ -92,7 +92,6 @@ private class FakeContextApi : ContextApi {
     val mineAsked = mutableListOf<Boolean>()
     val statusSent = mutableListOf<TaskStatusRequest>()
     val accepted = mutableListOf<Boolean>()
-    val linked = mutableListOf<Pair<String, String?>>()
     var failStatus: Exception? = null
 
     override suspend fun state(projectId: String, topicId: String?) = packet(listOf(topic, item, decided, person))
@@ -116,10 +115,8 @@ private class FakeContextApi : ContextApi {
         return Changed(ref(NodeType.TASK, taskId, 4))
     }
 
-    override suspend fun linkAccount(projectId: String, entityId: String, request: AccountRequest): Changed {
-        linked += entityId to request.email
-        return Changed(ref(NodeType.ENTITY, entityId, 2))
-    }
+    override suspend fun linkAccount(projectId: String, entityId: String, request: AccountRequest): Changed =
+        error("쓰지 않는다")
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -149,29 +146,63 @@ class ContextTest {
     }
 
     @Test
-    fun `남은 것에는 걸린 카드의 내용을 붙이고, 줄에 걸린 것은 종류만 알린다`() {
-        val rows = openRows(
+    fun `확정에는 확인된 결정만 남기고, 그런 결정이 없는 안건은 뺀다`() {
+        val pendingItem = fact(NodeType.DECISION_ITEM, "i3", "예산", mapOf("decisionState" to "DECIDED", "currentEventId" to "e3"))
+        val pendingEvent = fact(NodeType.DECISION_EVENT, "e3", "500만 원", mapOf("kind" to "DECISION"), ReviewStatus.CANDIDATE)
+
+        val board = confirmedBoard(
             packet(
-                listOf(condition),
+                listOf(topic, item, loose, decided, pendingItem, pendingEvent),
+                listOf(edge(RelType.HAS_ITEM, topic.node, item.node)),
+            ),
+        )
+
+        // "장소"는 아직 정해지지 않았고, "예산"은 결정이 아직 AI 후보라서 빠진다.
+        assertEquals(listOf("인쇄"), board.map { it.topic?.label })
+        assertEquals("예산 승인 뒤에 발주", board.single().rows.single().current?.label)
+    }
+
+    @Test
+    fun `확인 칸에는 남은 문제와 아직 정해지지 않은 결정을 적고, 같은 줄은 합친다`() {
+        val twin = condition.copy(node = ref(NodeType.CONDITION, "c2"))
+        val candidate = condition.copy(node = ref(NodeType.CONDITION, "c3"), status = ReviewStatus.CANDIDATE)
+
+        val rows = notices(
+            packet(
+                listOf(condition, twin, candidate, loose),
                 open = listOf(
                     OpenIssue(OpenIssueKind.UNMET_CONDITION, condition.node),
+                    OpenIssue(OpenIssueKind.UNMET_CONDITION, twin.node),
+                    // 아직 확인하지 않은 AI 후보에 걸린 것은 검토함에서 다루므로 뺀다.
+                    OpenIssue(OpenIssueKind.UNMET_CONDITION, candidate.node),
                     OpenIssue(OpenIssueKind.HELD_EDGE, edgeId = "x"),
                 ),
             ),
         )
 
-        assertEquals(listOf("예산 승인", null), rows.map { it.label })
-        assertEquals("아직 충족 안 된 조건", openLabel(rows[0].kind))
+        assertEquals(
+            listOf(Notice("조건 충족 전", "예산 승인", 2), Notice("보류 중인 연결", null), Notice("아직 정해지지 않음", "장소")),
+            rows,
+        )
     }
 
     @Test
-    fun `남은 것에 걸린 카드가 AI 후보면 그렇다고 적는다`() {
-        val candidate = condition.copy(status = ReviewStatus.CANDIDATE)
-        val confirmed = openRows(packet(listOf(condition), open = listOf(OpenIssue(OpenIssueKind.UNMET_CONDITION, condition.node))))
-        val pending = openRows(packet(listOf(candidate), open = listOf(OpenIssue(OpenIssueKind.UNMET_CONDITION, candidate.node))))
+    fun `문서의 할 일은 그 문서의 발언을 근거로 한 것만 고른다`() {
+        val here = task.copy(evidence = listOf(EvidenceRef(ref(NodeType.SPAN, "s1"), "e-s1", ReviewStatus.CONFIRMED)))
+        val elsewhere = candidateTask.copy(evidence = listOf(EvidenceRef(ref(NodeType.SPAN, "s2"), "e-s2", ReviewStatus.CANDIDATE)))
+        val otherQuote = Source(ref(NodeType.SPAN, "s2"), "d2", 3, null, "견적은 다음 주에 받습니다.")
 
-        assertEquals("아직 충족 안 된 조건 · 조건", openCaption(confirmed[0]))
-        assertEquals("아직 충족 안 된 조건 · 조건 · AI 후보", openCaption(pending[0]))
+        val rows = tasksOfDocument(
+            packet(
+                listOf(here, elsewhere, person),
+                listOf(edge(RelType.ASSIGNED_TO, here.node, person.node)),
+                sources = listOf(quote, otherQuote),
+            ),
+            documentId = "d1",
+        )
+
+        assertEquals(listOf("초청장 문구 정리"), rows.map { it.task.label })
+        assertEquals(listOf("지훈"), rows.single().assignees)
     }
 
     @Test
@@ -274,36 +305,13 @@ class ContextTest {
     }
 
     @Test
-    fun `사람만 고르고, 확인된 사람에게만 계정을 연결할 수 있다`() {
-        val org = fact(NodeType.ENTITY, "n2", "NUR Labs", mapOf("kind" to "ORGANIZATION"))
-        val linked = fact(NodeType.ENTITY, "n3", "민지", mapOf("kind" to "PERSON", "accountLinked" to "true"))
-        val candidate = fact(NodeType.ENTITY, "n4", "Ahmed", mapOf("kind" to "PERSON", "accountLinked" to "false"), ReviewStatus.CANDIDATE)
-
-        val rows = personRows(packet(listOf(person, org, linked, candidate)))
-
-        assertEquals(listOf("지훈", "민지", "Ahmed"), rows.map { it.person.label })
-        assertEquals(listOf(false, true, false), rows.map { it.linked })
-        assertEquals(listOf(true, true, false), rows.map { it.canLink })
-        assertTrue(canSubmitEmail(" a@b.kr "))
-        assertFalse(canSubmitEmail("지훈"))
-        assertFalse(canSubmitEmail("a b@c"))
-    }
-
-    @Test
-    fun `계정을 연결할 때 이메일을 다듬어 보내고, 끊을 때는 이메일 없이 보낸다`() = runTest {
-        val api = FakeContextApi()
-        val viewModel = ContextViewModel(api, "p1")
+    fun `맥락에는 확정된 결정과 확인된 할 일만 싣는다`() = runTest {
+        val viewModel = ContextViewModel(FakeContextApi(), "p1")
         viewModel.reload()
         advanceUntilIdle()
-        val row = viewModel.state.value.people.single()
 
-        viewModel.linkAccount(row, " jihun@example.com ")
-        advanceUntilIdle()
-        viewModel.unlinkAccount(row)
-        advanceUntilIdle()
-
-        assertEquals(listOf<Pair<String, String?>>("n1" to "jihun@example.com", "n1" to null), api.linked.toList())
-        assertEquals("지훈의 계정 연결을 끊었습니다.", viewModel.state.value.notice)
-        assertEquals(3, api.mineAsked.size)
+        assertEquals(listOf("인쇄 발주 시점"), viewModel.state.value.groups.flatMap { it.rows }.map { it.item.label })
+        // AI 후보인 "견적 받기"는 검토함에서 확인한 뒤에야 나온다.
+        assertEquals(listOf("초청장 문구 정리"), viewModel.state.value.tasks.map { it.task.label })
     }
 }

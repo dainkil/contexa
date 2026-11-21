@@ -116,6 +116,18 @@ class Gather(unittest.TestCase):
 
 
 class ToDraft(unittest.TestCase):
+
+    def test_언어를_정하지_않은_질문에는_답할_언어를_적지_않는다(self):
+        server = FakeServer()
+        context = answer.gather(server, server.claim(), "When do we print?")
+        request = {"artifactId": "a-1", "kind": "ANSWER", "question": "When do we print?", "lang": None}
+        prompt = answer.build_user_prompt(request, context)
+
+        self.assertNotIn("답할 언어", prompt)
+        self.assertIn("질문: When do we print?", prompt)
+        self.assertIn("질문을 쓴 언어로 답합니다", answer.SYSTEM_PROMPT)
+        self.assertIn("근거 발언은 번역하지 않습니다", answer.SYSTEM_PROMPT)
+
     def setUp(self):
         server = FakeServer()
         self.context = answer.gather(server, server.claim(), "인쇄 진행해도 돼?")

@@ -54,6 +54,15 @@ class IdentityAccessTest {
 	}
 
 	@Test
+	void 내_정보는_가입할_때_적은_이메일과_이름이다() {
+		IdentityAccess.Profile profile = identity.profileOf(owner);
+
+		assertThat(profile.email()).isEqualTo(email.toLowerCase());
+		assertThat(profile.displayName()).isEqualTo("민지");
+		assertThatThrownBy(() -> identity.profileOf(UUID.randomUUID())).isInstanceOf(UnauthenticatedException.class);
+	}
+
+	@Test
 	void 비밀번호와_토큰은_원문으로_저장하지_않는다() {
 		String token = identity.login(email, PASSWORD);
 

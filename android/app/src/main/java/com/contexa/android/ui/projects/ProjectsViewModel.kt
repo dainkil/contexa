@@ -7,7 +7,6 @@ import com.contexa.android.api.CreateProjectRequest
 import com.contexa.android.api.ProjectSummary
 import com.contexa.android.api.Role
 import com.contexa.android.api.userMessage
-import com.contexa.android.session.SessionStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -28,7 +27,7 @@ data class ProjectsUiState(
 )
 
 /** 로그인 직후 화면: 내 프로젝트를 고르거나 새로 만든다. */
-class ProjectsViewModel(private val api: AuthApi, private val session: SessionStore) : ViewModel() {
+class ProjectsViewModel(private val api: AuthApi) : ViewModel() {
 
     private val _state = MutableStateFlow(ProjectsUiState())
     val state: StateFlow<ProjectsUiState> = _state
@@ -64,9 +63,5 @@ class ProjectsViewModel(private val api: AuthApi, private val session: SessionSt
                 _state.update { it.copy(creating = false, createError = userMessage(e)) }
             }
         }
-    }
-
-    fun signOut() {
-        viewModelScope.launch { session.signOut() }
     }
 }

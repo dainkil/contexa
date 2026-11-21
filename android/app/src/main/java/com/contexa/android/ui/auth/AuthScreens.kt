@@ -39,7 +39,7 @@ fun SignInScreen(viewModel: AuthViewModel, expired: Boolean, onGoSignUp: () -> U
     var password by rememberSaveable { mutableStateOf("") }
     var errors by remember { mutableStateOf(SignInErrors()) }
 
-    AuthLayout(title = "로그인", subtitle = "이메일과 비밀번호로 로그인하세요.") {
+    AuthLayout(title = "로그인") {
         if (expired && state.serverError == null) {
             Text(
                 "로그인이 만료됐습니다. 다시 로그인하세요.",
@@ -69,7 +69,7 @@ fun SignUpScreen(viewModel: AuthViewModel, onGoSignIn: () -> Unit) {
     var confirm by rememberSaveable { mutableStateOf("") }
     var errors by remember { mutableStateOf(SignUpErrors()) }
 
-    AuthLayout(title = "가입", subtitle = "가입하면 바로 프로젝트를 만들 수 있습니다.") {
+    AuthLayout(title = "가입") {
         OutlinedTextField(
             value = displayName,
             onValueChange = { displayName = it },
@@ -95,7 +95,7 @@ fun SignUpScreen(viewModel: AuthViewModel, onGoSignIn: () -> Unit) {
 }
 
 @Composable
-private fun AuthLayout(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
+private fun AuthLayout(title: String, content: @Composable ColumnScope.() -> Unit) {
     Scaffold { inner ->
         Column(
             modifier = Modifier
@@ -110,13 +110,8 @@ private fun AuthLayout(title: String, subtitle: String, content: @Composable Col
                 modifier = Modifier.widthIn(max = 420.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Contexa", style = MaterialTheme.typography.headlineMedium)
-                Text(title, style = MaterialTheme.typography.titleLarge)
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("Contexa", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text(title, style = MaterialTheme.typography.headlineSmall)
                 content()
             }
         }

@@ -2,15 +2,17 @@ package com.contexa.android.ui.documents
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.contexa.android.api.ContextApi
 import com.contexa.android.api.DocumentApi
 import com.contexa.android.api.DocumentView
-import com.contexa.android.api.NewVersionRequest
 import com.contexa.android.api.ReviseSpanRequest
 import com.contexa.android.api.STALE_MESSAGE
 import com.contexa.android.api.Span
 import com.contexa.android.api.VersionStatus
 import com.contexa.android.api.isStale
 import com.contexa.android.api.userMessage
+import com.contexa.android.ui.context.TaskRow
+import com.contexa.android.ui.context.tasksOfDocument
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,10 +29,11 @@ data class ViewerUiState(
     val highlightId: String? = null,
     /** 한 번 보여 주고 지우는 알림(올림·정정 결과). */
     val notice: String? = null,
-    /** 새 판 창이 열려 있으면 그 본문. 닫혀 있으면 null. */
-    val newVersion: String? = null,
-    val newVersionError: String? = null,
-    val uploadingVersion: Boolean = false,
+    /** 이 문서에서 나온 할 일과 담당자. 아직 못 읽었으면 null. */
+    val tasks: List<TaskRow>? = null,
+    val tasksError: String? = null,
+    /** 수정 중: 발언을 누르면 정정 창이 열린다. */
+    val editing: Boolean = false,
     /** 정정 창이 열려 있으면 그 발언. */
     val revising: Span? = null,
     val reviseText: String = "",
@@ -49,12 +52,13 @@ data class ViewerUiState(
 }
 
 /**
- * 원문 뷰어. 판을 골라 발언을 순서대로 본다.
+ * 원문 뷰어. 이 문서에서 나온 할 일과 발언을 본다.
  *
  * @param spanId 근거 발언 id. 있으면 그 발언이 들어 있는 판을 연다.
  */
 class DocumentViewerViewModel(
     private val api: DocumentApi,
+    private val context: ContextApi,
     private val projectId: String,
     private val documentId: String,
     spanId: String?,
@@ -73,6 +77,8 @@ class DocumentViewerViewModel(
             while (loadOnce() && isActive(_state.value.openedVersion)) {
                 delay(POLL_MS)
             }
+            // 처리가 끝난 뒤에 읽는다. 처리 중에는 할 일 후보가 아직 없다.
+            loadTasks()
         }
     }
 
@@ -96,6 +102,21 @@ class DocumentViewerViewModel(
         false
     }
 
+    private suspend fun loadTasks() {
+        try {
+            val tasks = tasksOfDocument(context.tasks(projectId), documentId)
+            _state.update { it.copy(tasks = tasks, tasksError = null) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _state.update { it.copy(tasksError = userMessage(e)) }
+        }
+    }
+
+    fun setEditing(editing: Boolean) {
+        _state.update { it.copy(editing = editing) }
+    }
+
     /** @param versionNo null이면 최신 판. */
     fun openVersion(versionNo: Int?) {
         version = versionNo
@@ -105,52 +126,6 @@ class DocumentViewerViewModel(
 
     fun noticeShown() {
         _state.update { it.copy(notice = null) }
-    }
-
-    // ── 새 판 올리기 ──
-
-    fun openNewVersion() {
-        _state.update { it.copy(newVersion = "", newVersionError = null) }
-    }
-
-    fun closeNewVersion() {
-        if (!_state.value.uploadingVersion) _state.update { it.copy(newVersion = null) }
-    }
-
-    fun editNewVersion(content: String) {
-        _state.update { it.copy(newVersion = content, newVersionError = null) }
-    }
-
-    fun newVersionFailed(message: String) {
-        _state.update { it.copy(newVersionError = message) }
-    }
-
-    fun uploadNewVersion() {
-        val content = _state.value.newVersion ?: return
-        if (_state.value.uploadingVersion) return
-        if (content.isBlank()) {
-            _state.update { it.copy(newVersionError = EMPTY_CONTENT_MESSAGE) }
-            return
-        }
-        _state.update { it.copy(uploadingVersion = true, newVersionError = null) }
-        viewModelScope.launch {
-            try {
-                val started = api.uploadVersion(projectId, documentId, NewVersionRequest(content))
-                _state.update {
-                    it.copy(
-                        uploadingVersion = false,
-                        newVersion = null,
-                        notice = "${started.version.versionNo}판을 올렸습니다.",
-                    )
-                }
-                openVersion(null)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // 이전 판과 내용이 같으면 server가 거절한다. 그 문장을 그대로 보여 준다.
-                _state.update { it.copy(uploadingVersion = false, newVersionError = userMessage(e)) }
-            }
-        }
     }
 
     // ── 발언 정정 ──

@@ -19,8 +19,6 @@ import com.contexa.android.ContexaApp
 import com.contexa.android.api.NodeType
 import com.contexa.android.api.Role
 import com.contexa.android.appViewModel
-import com.contexa.android.ui.ask.AnswerScreen
-import com.contexa.android.ui.ask.AnswerViewModel
 import com.contexa.android.session.SessionState
 import com.contexa.android.ui.auth.AuthViewModel
 import com.contexa.android.ui.context.HistoryScreen
@@ -33,6 +31,9 @@ import com.contexa.android.ui.documents.DocumentViewerViewModel
 import com.contexa.android.ui.project.ProjectScreen
 import com.contexa.android.ui.projects.ProjectsScreen
 import com.contexa.android.ui.projects.ProjectsViewModel
+import com.contexa.android.ui.projects.roleLabel
+import com.contexa.android.ui.settings.SettingsScreen
+import com.contexa.android.ui.settings.SettingsViewModel
 
 /** 세션 상태에 따라 로그인 쪽 화면과 로그인 뒤 화면을 바꿔 보여 준다. */
 @Composable
@@ -45,7 +46,7 @@ fun AppNav() {
             CircularProgressIndicator()
         }
         is SessionState.SignedOut -> AuthNav(expired = current.expired)
-        is SessionState.SignedIn -> MainNav(email = current.email)
+        is SessionState.SignedIn -> MainNav()
     }
 }
 
@@ -65,19 +66,24 @@ private fun AuthNav(expired: Boolean) {
 }
 
 @Composable
-private fun MainNav(email: String) {
+private fun MainNav() {
     val nav = rememberNavController()
     NavHost(navController = nav, startDestination = "projects") {
         composable("projects") {
-            val viewModel = appViewModel { ProjectsViewModel(it.authApi, it.session) }
+            val viewModel = appViewModel { ProjectsViewModel(it.authApi) }
             ProjectsScreen(
                 viewModel = viewModel,
-                email = email,
                 onOpen = { nav.navigate("p/${Uri.encode(it.id)}?title=${Uri.encode(it.title)}&role=${it.role.name}") },
+                onOpenSettings = { nav.navigate("settings") },
             )
         }
 
-        // 프로젝트 안. 아래 탭으로 자료함·검토함·질문·맥락을 오간다.
+        composable("settings") {
+            val viewModel = appViewModel { SettingsViewModel(it.authApi, it.session) }
+            SettingsScreen(viewModel, onBack = { nav.popBackStack() })
+        }
+
+        // 프로젝트 안. 아래 탭으로 자료함·검토함·질문·맥락·설정을 오간다.
         composable(
             "p/{projectId}?title={title}&role={role}",
             arguments = listOf(textArg("title"), textArg("role")),
@@ -88,9 +94,9 @@ private fun MainNav(email: String) {
                 projectId = projectId,
                 title = entry.arguments?.getString("title").orEmpty(),
                 canReview = canReview(role),
+                roleLabel = Role.entries.find { it.name == role }?.let(::roleLabel),
                 onBack = { nav.popBackStack() },
                 onOpenDocument = { documentId, spanId -> nav.navigate(documentRoute(projectId, documentId, role, spanId)) },
-                onOpenAnswer = { artifactId -> nav.navigate("p/${Uri.encode(projectId)}/a/${Uri.encode(artifactId)}?role=$role") },
                 onOpenHistory = { itemId -> nav.navigate("p/${Uri.encode(projectId)}/h/${Uri.encode(itemId)}?role=$role") },
                 onOpenTrace = { node -> nav.navigate("p/${Uri.encode(projectId)}/t/${node.type.name}/${Uri.encode(node.id)}?role=$role") },
             )
@@ -127,19 +133,6 @@ private fun MainNav(email: String) {
             )
         }
 
-        // 답변 하나. 인용을 누르면 원문 뷰어의 그 발언으로 간다.
-        composable("p/{projectId}/a/{artifactId}?role={role}", arguments = listOf(textArg("role"))) { entry ->
-            val projectId = entry.arguments?.getString("projectId").orEmpty()
-            val artifactId = entry.arguments?.getString("artifactId").orEmpty()
-            val role = entry.arguments?.getString("role").orEmpty()
-            val viewModel = appViewModel { AnswerViewModel(it.generationApi, it.documentApi, projectId, artifactId) }
-            AnswerScreen(
-                viewModel = viewModel,
-                onBack = { nav.popBackStack() },
-                onOpenSource = { source -> nav.navigate(documentRoute(projectId, source.documentId, role, source.span.id)) },
-            )
-        }
-
         // 원문 뷰어. span(근거 발언 id)을 주면 그 발언이 들어 있는 판을 열고 그 자리로 간다.
         composable(
             "p/{projectId}/d/{documentId}?role={role}&span={span}",
@@ -155,7 +148,7 @@ private fun MainNav(email: String) {
             val documentId = entry.arguments?.getString("documentId").orEmpty()
             val role = entry.arguments?.getString("role").orEmpty()
             val span = entry.arguments?.getString("span")
-            val viewModel = appViewModel { DocumentViewerViewModel(it.documentApi, projectId, documentId, span) }
+            val viewModel = appViewModel { DocumentViewerViewModel(it.documentApi, it.contextApi, projectId, documentId, span) }
             DocumentViewerScreen(
                 viewModel = viewModel,
                 canRevise = canReview(role),
