@@ -45,7 +45,7 @@ server 설정은 바꾸지 않는다.
 - `app/src/main/res/xml/network_security_config.xml` — HTTPS만 허용. `app/src/debug/`의 같은 이름 파일이 개발 빌드에서만 이 컴퓨터로 가는 평문 HTTP를 연다.
 - `app/src/main/java/com/contexa/android/` — 앱 코드.
   - `api/` — server와 주고받는 타입과 호출. `session/` — 로그인 토큰 보관.
-  - `ui/theme/` — 색·글자·모서리. 모양은 developer.android.com을 따른다(흰 바탕, 테두리 카드, 초록 알약 버튼).
+  - `ui/theme/` — 색·글자·모서리. 모양은 당근의 [SEED Design](https://github.com/daangn/seed-design)(Apache-2.0)을 따른다. 색·모서리·글자 크기 토큰과 버튼·배지·칩 규격을 옮겼고, 강조색만 주황 대신 SEED의 초록 단계를 쓴다. 당근의 로고·캐릭터 같은 브랜드 자산은 쓰지 않는다.
   - `ui/components/` — 여러 화면이 같이 쓰는 버튼·꼬리표·근거 인용·전체 화면 입력 창.
   - `ui/auth/`, `ui/projects/` — 로그인과 프로젝트 고르기.
   - `ui/project/` — 프로젝트 안의 아래 탭(자료함·검토함·질문·맥락).

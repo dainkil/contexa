@@ -19,8 +19,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
@@ -41,6 +39,7 @@ import com.contexa.android.api.Fact
 import com.contexa.android.api.NodeRef
 import com.contexa.android.api.ReviewStatus
 import com.contexa.android.api.TaskStatus
+import com.contexa.android.ui.components.ChoiceChip
 import com.contexa.android.ui.components.PrimaryButton
 import com.contexa.android.ui.components.SecondaryButton
 import com.contexa.android.ui.components.Tag
@@ -473,7 +472,7 @@ fun DecisionStateTag(value: String) {
     Tag(
         stateLabel("decisionState", value),
         color = if (decided) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-        container = if (decided) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        container = if (decided) MaterialTheme.colorScheme.primaryContainer else null,
     )
 }
 
@@ -494,15 +493,7 @@ fun Chips(content: @Composable () -> Unit) {
 
 @Composable
 fun Choice(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label) },
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ),
-    )
+    ChoiceChip(label, selected = selected, onClick = onClick)
 }
 
 @Composable

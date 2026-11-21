@@ -13,8 +13,6 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
@@ -39,6 +37,7 @@ import com.contexa.android.api.ReviewItem
 import com.contexa.android.api.ReviewStatus
 import com.contexa.android.api.Source
 import com.contexa.android.api.Verdict
+import com.contexa.android.ui.components.ChoiceChip
 import com.contexa.android.ui.components.PrimaryButton
 import com.contexa.android.ui.components.SecondaryButton
 import com.contexa.android.ui.components.SourceQuote
@@ -378,15 +377,7 @@ private fun FieldInput(spec: FieldSpec, value: String, onChange: (String) -> Uni
             Text(spec.label, style = MaterialTheme.typography.titleSmall)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 spec.options.forEach { option ->
-                    FilterChip(
-                        selected = value == option.value,
-                        onClick = { onChange(option.value) },
-                        label = { Text(option.label) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        ),
-                    )
+                    ChoiceChip(option.label, selected = value == option.value, onClick = { onChange(option.value) })
                 }
             }
         }

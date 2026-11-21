@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
@@ -31,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.contexa.android.api.ArtifactSummary
 import com.contexa.android.api.GenKind
+import com.contexa.android.ui.components.ChoiceChip
 import com.contexa.android.ui.components.PrimaryButton
 import com.contexa.android.ui.components.SecondaryButton
 import com.contexa.android.ui.components.Tag
@@ -88,15 +87,7 @@ fun AskScreen(viewModel: AskViewModel, onOpenAnswer: (artifactId: String) -> Uni
                 ) {
                     Text("답변 언어", style = MaterialTheme.typography.titleSmall)
                     LANGUAGES.forEach { language ->
-                        FilterChip(
-                            selected = state.lang == language.code,
-                            onClick = { viewModel.pickLang(language.code) },
-                            label = { Text(language.label) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            ),
-                        )
+                        ChoiceChip(language.label, selected = state.lang == language.code, onClick = { viewModel.pickLang(language.code) })
                     }
                 }
                 FlowRow(

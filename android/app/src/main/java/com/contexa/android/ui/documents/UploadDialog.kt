@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -20,6 +18,7 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import com.contexa.android.api.DocumentKind
 import com.contexa.android.api.Visibility
+import com.contexa.android.ui.components.ChoiceChip
 import com.contexa.android.ui.components.FullScreenDialog
 import com.contexa.android.ui.components.PrimaryButton
 
@@ -63,45 +62,20 @@ fun UploadDialog(
 
         Choice("종류", hint = "회의 전사문은 줄마다 화자를 나눠 자릅니다.") {
             DocumentKind.entries.forEach { kind ->
-                FilterChip(
-                    selected = form.kind == kind,
-                    onClick = { onEdit { it.copy(kind = kind) } },
-                    label = { Text(kindLabel(kind)) },
-                    colors = choiceColors(),
-                )
+                ChoiceChip(kindLabel(kind), selected = form.kind == kind, onClick = { onEdit { it.copy(kind = kind) } })
             }
         }
 
         Choice("언어") {
             LANGUAGES.forEach { language ->
-                FilterChip(
-                    selected = form.language == language.code,
-                    onClick = { onEdit { it.copy(language = language.code) } },
-                    label = { Text(language.label) },
-                    colors = choiceColors(),
-                )
+                ChoiceChip(language.label, selected = form.language == language.code, onClick = { onEdit { it.copy(language = language.code) } })
             }
-            FilterChip(
-                selected = form.language == MIXED_LANGUAGE,
-                onClick = { onEdit { it.copy(language = MIXED_LANGUAGE) } },
-                label = { Text("여러 언어가 섞임") },
-                colors = choiceColors(),
-            )
+            ChoiceChip("여러 언어가 섞임", selected = form.language == MIXED_LANGUAGE, onClick = { onEdit { it.copy(language = MIXED_LANGUAGE) } })
         }
 
         Choice("누가 읽나요") {
-            FilterChip(
-                selected = !isPrivate,
-                onClick = { onEdit { it.copy(visibility = Visibility.PROJECT) } },
-                label = { Text("프로젝트 구성원 모두") },
-                colors = choiceColors(),
-            )
-            FilterChip(
-                selected = isPrivate,
-                onClick = { onEdit { it.copy(visibility = Visibility.PRIVATE) } },
-                label = { Text("나만 (개인 메모)") },
-                colors = choiceColors(),
-            )
+            ChoiceChip("프로젝트 구성원 모두", selected = !isPrivate, onClick = { onEdit { it.copy(visibility = Visibility.PROJECT) } })
+            ChoiceChip("나만 (개인 메모)", selected = isPrivate, onClick = { onEdit { it.copy(visibility = Visibility.PRIVATE) } })
         }
 
         Row(
@@ -138,13 +112,6 @@ fun UploadDialog(
         uploadError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
     }
 }
-
-/** 고른 칩은 옅은 초록으로 칠해 고르지 않은 것과 확실히 구분한다. */
-@Composable
-private fun choiceColors() = FilterChipDefaults.filterChipColors(
-    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

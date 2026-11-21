@@ -14,8 +14,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
@@ -33,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.contexa.android.api.NodeType
 import com.contexa.android.api.ReviewState
 import com.contexa.android.api.Source
+import com.contexa.android.ui.components.ChoiceChip
 import com.contexa.android.ui.components.SecondaryButton
 
 /**
@@ -151,15 +150,7 @@ fun ReviewsScreen(
 
 @Composable
 private fun TabChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label) },
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ),
-    )
+    ChoiceChip(label, selected = selected, onClick = onClick)
 }
 
 @Composable
