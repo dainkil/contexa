@@ -165,6 +165,16 @@ class ContextTest {
     }
 
     @Test
+    fun `남은 것에 걸린 카드가 AI 후보면 그렇다고 적는다`() {
+        val candidate = condition.copy(status = ReviewStatus.CANDIDATE)
+        val confirmed = openRows(packet(listOf(condition), open = listOf(OpenIssue(OpenIssueKind.UNMET_CONDITION, condition.node))))
+        val pending = openRows(packet(listOf(candidate), open = listOf(OpenIssue(OpenIssueKind.UNMET_CONDITION, candidate.node))))
+
+        assertEquals("아직 충족 안 된 조건 · 조건", openCaption(confirmed[0]))
+        assertEquals("아직 충족 안 된 조건 · 조건 · AI 후보", openCaption(pending[0]))
+    }
+
+    @Test
     fun `할 일에 담당자를 붙이고, 확인된 할 일만 상태를 바꿀 수 있다`() {
         val rows = taskRows(packet(listOf(task, candidateTask, person), listOf(edge(RelType.ASSIGNED_TO, task.node, person.node))))
 

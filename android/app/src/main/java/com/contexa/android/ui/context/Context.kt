@@ -10,6 +10,8 @@ import com.contexa.android.api.ReviewStatus
 import com.contexa.android.api.Source
 import com.contexa.android.api.TaskStatus
 import com.contexa.android.ui.reviews.relationLabel
+import com.contexa.android.ui.reviews.statusLabel
+import com.contexa.android.ui.reviews.typeLabel
 
 /* 맥락 화면의 규칙: server가 준 ContextPacket(카드·줄·원문)을 화면에 그릴 모양으로 엮는다. 화면과 떼어 두고 테스트한다. */
 
@@ -40,13 +42,26 @@ fun openLabel(kind: OpenIssueKind): String = when (kind) {
     OpenIssueKind.AMBIGUOUS_NAME -> "누구인지 여럿인 이름"
 }
 
-/** 남은 것 한 줄. label은 걸린 카드의 내용. 줄에 걸렸거나 읽을 수 없는 카드면 null. */
-data class OpenRow(val kind: OpenIssueKind, val label: String?, val node: NodeRef?)
+/**
+ * 남은 것 한 줄. label은 걸린 카드의 내용. 줄에 걸렸거나 읽을 수 없는 카드면 null.
+ * candidate = 걸린 카드가 아직 사람이 확인하지 않은 AI 후보다.
+ */
+data class OpenRow(val kind: OpenIssueKind, val label: String?, val node: NodeRef?, val candidate: Boolean = false)
 
 fun openRows(packet: ContextPacket): List<OpenRow> {
     val byId = packet.facts.associateBy { it.node.id }
-    return packet.open.map { issue -> OpenRow(issue.kind, issue.node?.let { byId[it.id]?.label }, issue.node) }
+    return packet.open.map { issue ->
+        val fact = issue.node?.let { byId[it.id] }
+        OpenRow(issue.kind, fact?.label, issue.node, candidate = fact?.status == ReviewStatus.CANDIDATE)
+    }
 }
+
+/** 남은 것 한 줄 위에 적는 작은 글자: 무엇이 남았나 · 카드 종류 · (후보면) AI 후보. */
+fun openCaption(row: OpenRow): String = listOfNotNull(
+    openLabel(row.kind),
+    row.node?.let { typeLabel(it.type) },
+    if (row.candidate) statusLabel(ReviewStatus.CANDIDATE) else null,
+).joinToString(" · ")
 
 /** 할 일 한 줄. assignees = 담당으로 이어진 인물·기관 이름. */
 data class TaskRow(val task: Fact, val assignees: List<String>) {
