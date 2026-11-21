@@ -42,12 +42,6 @@ fun UploadDialog(
         onClose = onClose,
         action = { PrimaryButton("올리기", onClick = onSubmit, loading = uploading) },
     ) {
-        Text(
-            "이미 글로 옮긴 회의록이나 업무 문서를 붙여 넣으세요. 올리면 발언 단위로 자르고, AI가 결정·할 일 후보를 뽑아 검토함에 넣습니다.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
         OutlinedTextField(
             value = form.title,
             onValueChange = { value -> onEdit { it.copy(title = value) } },

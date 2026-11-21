@@ -29,6 +29,7 @@ import com.contexa.android.api.ContextPacket
 import com.contexa.android.api.Direction
 import com.contexa.android.api.Fact
 import com.contexa.android.api.Source
+import com.contexa.android.ui.components.BackButton
 import com.contexa.android.ui.components.SourceQuote
 import com.contexa.android.ui.components.Tag
 import com.contexa.android.ui.reviews.formatDay
@@ -186,7 +187,10 @@ private fun PacketScaffold(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text(title) }, navigationIcon = { TextButton(onClick = onBack) { Text("맥락") } })
+            TopAppBar(
+                title = { Text(title, style = MaterialTheme.typography.titleMedium) },
+                navigationIcon = { BackButton(onBack) },
+            )
         },
     ) { inner ->
         val packet = state.packet

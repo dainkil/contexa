@@ -81,10 +81,17 @@ class ReviewFieldsTest {
     }
 
     @Test
-    fun `카드 요약과 줄 이름`() {
-        assertEquals("예정 · 담당자 수락 전 · 기한 미정", cardSummary(printTask().card!!))
+    fun `카드 내용과 줄 이름`() {
+        assertEquals(listOf("상태" to "예정", "기한" to "미정", "수락" to "담당자 수락 전"), cardFacts(printTask().card!!))
         // 후보 사건에 "유효"라고 쓰면 확정된 것처럼 읽히므로 적지 않는다.
-        assertNull(cardSummary(view(NodeType.DECISION_EVENT, "e1", "대면 개최", states = mapOf("standing" to "ACTIVE"))))
+        assertEquals(
+            emptyList<Pair<String, String>>(),
+            cardFacts(view(NodeType.DECISION_EVENT, "e1", "대면 개최", states = mapOf("standing" to "ACTIVE"))),
+        )
+        // 근거 줄은 원문으로 보여 주므로 빼고, 먼저 필요한 것은 선행요건으로 모은다. 볼 수 없는 카드는 그렇다고 적는다.
+        val links = cardLinks(printTask())
+        assertEquals(listOf("예산 승인", "볼 수 없는 조건"), links.prerequisites)
+        assertEquals(emptyList<Pair<String, String>>(), links.facts)
         assertEquals("먼저 필요한 것", relationLabel(RelType.REQUIRES, ownerIsSrc = true))
         assertEquals("딸린 사건", relationLabel(RelType.HAS_EVENT, ownerIsSrc = true))
         assertEquals("속한 결정 항목", relationLabel(RelType.HAS_EVENT, ownerIsSrc = false))

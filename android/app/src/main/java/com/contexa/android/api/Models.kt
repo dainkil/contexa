@@ -279,7 +279,8 @@ data class ArtifactSummary(
     val id: String,
     val kind: GenKind,
     val question: String,
-    val lang: String,
+    /** 답할 언어를 정해서 물었을 때만 있다. 없으면 질문을 쓴 언어로 답한 글이다. */
+    val lang: String? = null,
     val published: Boolean,
     val createdAt: String,
 )
@@ -290,7 +291,8 @@ data class ArtifactView(
     val id: String,
     val kind: GenKind,
     val question: String,
-    val lang: String,
+    /** 답할 언어를 정해서 물었을 때만 있다. 없으면 질문을 쓴 언어로 답한 글이다. */
+    val lang: String? = null,
     val status: ArtifactStatus,
     val content: String? = null,
     val citations: List<Source> = emptyList(),

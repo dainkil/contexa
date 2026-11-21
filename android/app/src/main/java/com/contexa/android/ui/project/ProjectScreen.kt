@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -20,7 +21,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,6 +37,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.contexa.android.api.NodeRef
 import com.contexa.android.appViewModel
+import com.contexa.android.ui.components.BackButton
+import com.contexa.android.ui.settings.SettingsContent
+import com.contexa.android.ui.settings.SettingsViewModel
 import com.contexa.android.ui.context.ContextScreen
 import com.contexa.android.ui.context.ContextViewModel
 import com.contexa.android.ui.ask.AskScreen
@@ -53,14 +56,15 @@ enum class ProjectTab(val label: String, val icon: ImageVector) {
     REVIEWS("검토함", Icons.Filled.CheckCircle),
     ASK("질문", Icons.Filled.Search),
     CONTEXT("맥락", Icons.Filled.Info),
+    SETTINGS("설정", Icons.Filled.Settings),
 }
 
 /**
- * 프로젝트 안 화면. 아래 탭으로 자료함·검토함·질문·맥락을 오간다.
+ * 프로젝트 안 화면. 아래 탭으로 자료함·검토함·질문·맥락·설정을 오간다.
  *
  * @param canReview      소유자·검토자인가(확인·정정을 할 수 있나)
+ * @param roleLabel      이 프로젝트에서의 내 역할. 설정에 적는다.
  * @param onOpenDocument 원문 뷰어를 연다. spanId를 주면 그 발언 자리로 간다.
- * @param onOpenAnswer   답변 화면을 연다.
  * @param onOpenHistory  결정 항목의 이력을 연다.
  * @param onOpenTrace    카드의 근거·영향을 따라가 본다.
  */
@@ -70,9 +74,9 @@ fun ProjectScreen(
     projectId: String,
     title: String,
     canReview: Boolean,
+    roleLabel: String?,
     onBack: () -> Unit,
     onOpenDocument: (documentId: String, spanId: String?) -> Unit,
-    onOpenAnswer: (artifactId: String) -> Unit,
     onOpenHistory: (decisionItemId: String) -> Unit,
     onOpenTrace: (NodeRef) -> Unit,
 ) {
@@ -86,12 +90,12 @@ fun ProjectScreen(
                 title = {
                     Text(
                         title,
-                        style = MaterialTheme.typography.titleLarge.copy(textDirection = TextDirection.Content),
+                        style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Content),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 },
-                navigationIcon = { TextButton(onClick = onBack) { Text("프로젝트") } },
+                navigationIcon = { BackButton(onBack) },
             )
         },
         bottomBar = {
@@ -103,7 +107,7 @@ fun ProjectScreen(
                             selected = tab == entry,
                             onClick = { tab = entry },
                             icon = { Icon(entry.icon, contentDescription = null) },
-                            label = { Text(entry.label, style = MaterialTheme.typography.labelMedium) },
+                            label = { Text(entry.label, style = MaterialTheme.typography.labelLarge, maxLines = 1) },
                             colors = NavigationBarItemDefaults.colors(
                                 // SEED의 아래 탭처럼 고른 탭은 짙은 색, 나머지는 옅은 회색. 알약 표시는 그리지 않는다.
                                 indicatorColor = Color.Transparent,
@@ -133,34 +137,28 @@ fun ProjectScreen(
                 canReview = canReview,
                 onNotice = { message -> scope.launch { snackbar.showSnackbar(message) } },
                 onOpenSource = { source -> onOpenDocument(source.documentId, source.span.id) },
-                onGoDocuments = { tab = ProjectTab.DOCUMENTS },
                 modifier = content,
             )
 
             ProjectTab.ASK -> AskScreen(
                 viewModel = appViewModel(key = "ask") { AskViewModel(it.generationApi, projectId) },
-                onOpenAnswer = onOpenAnswer,
+                onOpenSource = { source -> onOpenDocument(source.documentId, source.span.id) },
                 modifier = content,
             )
 
             ProjectTab.CONTEXT -> ContextScreen(
                 viewModel = appViewModel(key = "context") { ContextViewModel(it.contextApi, projectId) },
-                canReview = canReview,
                 onNotice = { message -> scope.launch { snackbar.showSnackbar(message) } },
                 onOpenHistory = onOpenHistory,
                 onOpenTrace = onOpenTrace,
                 modifier = content,
             )
+
+            ProjectTab.SETTINGS -> SettingsContent(
+                viewModel = appViewModel(key = "settings") { SettingsViewModel(it.authApi, it.session) },
+                modifier = content,
+                role = roleLabel,
+            )
         }
     }
-}
-
-@Composable
-private fun ComingSoon(message: String, modifier: Modifier) {
-    Text(
-        message,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(24.dp),
-    )
 }

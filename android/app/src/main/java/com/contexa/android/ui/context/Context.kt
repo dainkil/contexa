@@ -10,8 +10,7 @@ import com.contexa.android.api.ReviewStatus
 import com.contexa.android.api.Source
 import com.contexa.android.api.TaskStatus
 import com.contexa.android.ui.reviews.relationLabel
-import com.contexa.android.ui.reviews.statusLabel
-import com.contexa.android.ui.reviews.typeLabel
+import com.contexa.android.ui.reviews.stateLabel
 
 /* 맥락 화면의 규칙: server가 준 ContextPacket(카드·줄·원문)을 화면에 그릴 모양으로 엮는다. 화면과 떼어 두고 테스트한다. */
 
@@ -34,34 +33,40 @@ fun decisionBoard(packet: ContextPacket): List<TopicGroup> {
     return if (loose.isEmpty()) groups else groups + TopicGroup(null, loose)
 }
 
+/** 확정 화면에 그릴 것만: 확인된 결정 항목 가운데 지금 유효한 결정도 확인된 것. 그런 항목이 없는 안건은 뺀다. */
+fun confirmedBoard(packet: ContextPacket): List<TopicGroup> =
+    decisionBoard(packet)
+        .map { group -> group.copy(rows = group.rows.filter { it.item.status == ReviewStatus.CONFIRMED && it.current?.status == ReviewStatus.CONFIRMED }) }
+        .filter { it.rows.isNotEmpty() }
+
 fun openLabel(kind: OpenIssueKind): String = when (kind) {
-    OpenIssueKind.HELD_NODE -> "보류된 카드"
-    OpenIssueKind.HELD_EDGE -> "보류된 연결"
-    OpenIssueKind.CONTESTED_DECISION -> "확정이 둘 겹친 결정"
-    OpenIssueKind.UNMET_CONDITION -> "아직 충족 안 된 조건"
-    OpenIssueKind.AMBIGUOUS_NAME -> "누구인지 여럿인 이름"
+    OpenIssueKind.HELD_NODE -> "보류 중"
+    OpenIssueKind.HELD_EDGE -> "보류 중인 연결"
+    OpenIssueKind.CONTESTED_DECISION -> "확정이 둘 겹침"
+    OpenIssueKind.UNMET_CONDITION -> "조건 충족 전"
+    OpenIssueKind.AMBIGUOUS_NAME -> "누구인지 불분명한 이름"
 }
+
+/** "확인" 칸의 한 줄. kind = 무엇이 문제인가, text = 걸린 것의 내용(연결에 걸렸거나 읽을 수 없으면 null), count = 같은 줄이 몇 건인가. */
+data class Notice(val kind: String, val text: String?, val count: Int = 1)
+
+private val UNSETTLED = setOf("UNDECIDED", "WITHDRAWN")
 
 /**
- * 남은 것 한 줄. label은 걸린 카드의 내용. 줄에 걸렸거나 읽을 수 없는 카드면 null.
- * candidate = 걸린 카드가 아직 사람이 확인하지 않은 AI 후보다.
+ * 알아야 하는 사항: server가 알려 준 남은 문제와, 확인됐지만 아직 유효한 결정이 없는 항목.
+ * 아직 사람이 확인하지 않은 AI 후보에 걸린 것은 뺀다(검토함에서 다룬다). 같은 줄은 하나로 합쳐 건수를 센다.
  */
-data class OpenRow(val kind: OpenIssueKind, val label: String?, val node: NodeRef?, val candidate: Boolean = false)
-
-fun openRows(packet: ContextPacket): List<OpenRow> {
+fun notices(packet: ContextPacket): List<Notice> {
     val byId = packet.facts.associateBy { it.node.id }
-    return packet.open.map { issue ->
+    val issues = packet.open.mapNotNull { issue ->
         val fact = issue.node?.let { byId[it.id] }
-        OpenRow(issue.kind, fact?.label, issue.node, candidate = fact?.status == ReviewStatus.CANDIDATE)
+        if (fact?.status == ReviewStatus.CANDIDATE) null else openLabel(issue.kind) to fact?.label
     }
+    val unsettled = packet.facts
+        .filter { it.node.type == NodeType.DECISION_ITEM && it.status == ReviewStatus.CONFIRMED }
+        .mapNotNull { item -> item.states["decisionState"]?.takeIf { it in UNSETTLED }?.let { stateLabel("decisionState", it) to item.label } }
+    return (issues + unsettled).groupingBy { it }.eachCount().map { (row, count) -> Notice(row.first, row.second, count) }
 }
-
-/** 남은 것 한 줄 위에 적는 작은 글자: 무엇이 남았나 · 카드 종류 · (후보면) AI 후보. */
-fun openCaption(row: OpenRow): String = listOfNotNull(
-    openLabel(row.kind),
-    row.node?.let { typeLabel(it.type) },
-    if (row.candidate) statusLabel(ReviewStatus.CANDIDATE) else null,
-).joinToString(" · ")
 
 /** 할 일 한 줄. assignees = 담당으로 이어진 인물·기관 이름. */
 data class TaskRow(val task: Fact, val assignees: List<String>) {
@@ -83,20 +88,9 @@ fun taskRows(packet: ContextPacket): List<TaskRow> {
     }
 }
 
-/** 인물 한 명. linked = 이 프로젝트의 계정에 연결돼 있다(누구의 계정인지는 server가 알려 주지 않는다). */
-data class PersonRow(val person: Fact) {
-    val linked: Boolean get() = person.states["accountLinked"] == "true"
-
-    /** server는 확인된 인물 카드에만 계정을 연결해 준다. 끊는 것은 언제나 된다. */
-    val canLink: Boolean get() = person.status == ReviewStatus.CONFIRMED
-}
-
-/** 현황에 실려 온 인물·기관 가운데 사람만. 기관에는 계정을 연결할 수 없다. */
-fun personRows(packet: ContextPacket): List<PersonRow> =
-    packet.facts.filter { it.node.type == NodeType.ENTITY && it.states["kind"] == "PERSON" }.map(::PersonRow)
-
-/** 연결할 이메일로 보낼 수 있나. 형식은 server가 가입 여부로 가린다. */
-fun canSubmitEmail(text: String): Boolean = text.trim().let { it.length >= 3 && '@' in it && ' ' !in it }
+/** 이 문서의 발언을 근거로 한 할 일. 원문 뷰어가 "누가 무엇을 맡았나"를 보여 줄 때 쓴다. */
+fun tasksOfDocument(packet: ContextPacket, documentId: String): List<TaskRow> =
+    taskRows(packet).filter { row -> sourcesOf(row.task, packet).any { it.documentId == documentId } }
 
 /** 지금 상태에서 고를 수 있는 다른 상태. */
 fun nextStatuses(current: TaskStatus?): List<TaskStatus> = TaskStatus.entries.filter { it != current }

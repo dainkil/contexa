@@ -14,7 +14,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
@@ -39,7 +43,7 @@ import com.contexa.android.ui.components.PrimaryButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectsScreen(viewModel: ProjectsViewModel, email: String, onOpen: (ProjectSummary) -> Unit) {
+fun ProjectsScreen(viewModel: ProjectsViewModel, onOpen: (ProjectSummary) -> Unit, onOpenSettings: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var title by rememberSaveable { mutableStateOf("") }
     val submit = {
@@ -52,8 +56,10 @@ fun ProjectsScreen(viewModel: ProjectsViewModel, email: String, onOpen: (Project
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Contexa") },
-                actions = { TextButton(onClick = viewModel::signOut) { Text("로그아웃") } },
+                title = { Text("프로젝트", style = MaterialTheme.typography.headlineSmall) },
+                actions = {
+                    IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "설정") }
+                },
             )
         },
     ) { inner ->
@@ -65,22 +71,6 @@ fun ProjectsScreen(viewModel: ProjectsViewModel, email: String, onOpen: (Project
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item {
-                Text("프로젝트", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    "회의록과 결정사항은 프로젝트 안에서만 보입니다.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    email,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            item { Text("내 프로젝트", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
-
             when {
                 state.loading -> item {
                     Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -97,8 +87,8 @@ fun ProjectsScreen(viewModel: ProjectsViewModel, email: String, onOpen: (Project
 
                 state.projects.isEmpty() -> item {
                     Text(
-                        "아직 속한 프로젝트가 없습니다. 아래에서 새로 만들거나, 프로젝트 소유자에게 구성원으로 넣어 달라고 요청하세요.",
-                        style = MaterialTheme.typography.bodyMedium,
+                        "아직 속한 프로젝트가 없습니다.",
+                        style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -114,11 +104,6 @@ fun ProjectsScreen(viewModel: ProjectsViewModel, email: String, onOpen: (Project
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text("새 프로젝트", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "만든 사람이 소유자가 됩니다. 구성원은 나중에 이메일로 넣습니다.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                     OutlinedTextField(
                         value = title,
                         onValueChange = { title = it },
@@ -131,7 +116,7 @@ fun ProjectsScreen(viewModel: ProjectsViewModel, email: String, onOpen: (Project
                         modifier = Modifier.fillMaxWidth(),
                     )
                     state.createError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    PrimaryButton("만들기", onClick = submit, enabled = title.isNotBlank(), loading = state.creating)
+                    PrimaryButton("만들기", onClick = submit, enabled = title.isNotBlank(), loading = state.creating, modifier = Modifier.fillMaxWidth())
                 }
             }
         }
@@ -156,7 +141,7 @@ private fun ProjectRow(project: ProjectSummary, onClick: () -> Unit) {
             )
             Text(
                 roleLabel(project.role),
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

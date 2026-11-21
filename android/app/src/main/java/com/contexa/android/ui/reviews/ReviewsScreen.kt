@@ -15,7 +15,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,15 +31,15 @@ import com.contexa.android.api.NodeType
 import com.contexa.android.api.ReviewState
 import com.contexa.android.api.Source
 import com.contexa.android.ui.components.ChoiceChip
+import com.contexa.android.ui.components.ScreenTitle
 import com.contexa.android.ui.components.SecondaryButton
 
 /**
- * 검토함 탭: AI가 뽑은 후보를 카드 묶음 단위로 확인·보류·거절·정정한다.
+ * 검토함 탭: AI가 뽑은 후보를 카드 묶음 단위로 확인·보류·거절한다.
  *
  * @param canReview     소유자·검토자만 판단한다
  * @param onNotice      처리 결과 알림을 띄운다
  * @param onOpenSource  근거 발언을 원문 뷰어에서 연다
- * @param onGoDocuments 자료함 탭으로 간다
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -49,7 +48,6 @@ fun ReviewsScreen(
     canReview: Boolean,
     onNotice: (String) -> Unit,
     onOpenSource: (Source) -> Unit,
-    onGoDocuments: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -70,27 +68,15 @@ fun ReviewsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("검토함", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    "AI가 뽑은 후보를 근거 원문과 함께 보고, 카드 묶음 단위로 확인·보류·거절합니다. 확인한 것만 현재 결정과 할 일에 반영됩니다.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ScreenTitle("검토함")
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     itemVerticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TabChip("확인할 것", state.tab == ReviewState.OPEN) { viewModel.showTab(ReviewState.OPEN) }
-                    TabChip("처리한 것", state.tab == ReviewState.DONE) { viewModel.showTab(ReviewState.DONE) }
+                    ChoiceChip("확인할 것", selected = state.tab == ReviewState.OPEN, onClick = { viewModel.showTab(ReviewState.OPEN) })
+                    ChoiceChip("처리한 것", selected = state.tab == ReviewState.DONE, onClick = { viewModel.showTab(ReviewState.DONE) })
                     TypeFilter(state.type, onPick = viewModel::filterType)
-                }
-                if (!canReview) {
-                    Text(
-                        "확인·정정은 소유자와 검토자가 합니다. 구성원은 볼 수만 있습니다.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
@@ -108,13 +94,10 @@ fun ReviewsScreen(
             state.items.isNotEmpty() -> items(state.items, key = { it.id }) { item ->
                 ReviewCard(
                     item = item,
-                    draft = state.drafts[draftKey(item)] ?: ReviewDraft(),
                     canReview = canReview,
                     busy = state.busyId == item.id,
                     documentTitles = state.documentTitles,
-                    onChoose = { edgeId, verdict -> viewModel.choose(item, edgeId, verdict) },
-                    onEdit = { values -> viewModel.editValues(item, values) },
-                    onAct = { verdict, corrections -> viewModel.act(item, verdict, corrections) },
+                    onAct = { verdict -> viewModel.act(item, verdict) },
                     onOpenSource = onOpenSource,
                 )
             }
@@ -125,7 +108,7 @@ fun ReviewsScreen(
                 }
             }
 
-            state.loadError == null && state.next == null -> item { EmptyReviews(state.tab, onGoDocuments) }
+            state.loadError == null && state.next == null -> item { EmptyReviews(state.tab) }
         }
 
         // 끝까지 내리면 다음 쪽을 잇는다.
@@ -149,16 +132,11 @@ fun ReviewsScreen(
 }
 
 @Composable
-private fun TabChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    ChoiceChip(label, selected = selected, onClick = onClick)
-}
-
-@Composable
 private fun TypeFilter(type: NodeType?, onPick: (NodeType?) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         TextButton(onClick = { open = true }) {
-            Text("${type?.let(::typeLabel) ?: "모든 종류"} ▾", style = MaterialTheme.typography.labelMedium)
+            Text("${type?.let(::typeLabel) ?: "모든 종류"} ▾")
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             (listOf<NodeType?>(null) + FILTER_TYPES).forEach { option ->
@@ -175,24 +153,10 @@ private fun TypeFilter(type: NodeType?, onPick: (NodeType?) -> Unit) {
 }
 
 @Composable
-private fun EmptyReviews(tab: ReviewState, onGoDocuments: () -> Unit) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (tab == ReviewState.OPEN) {
-                Text("확인할 것이 없습니다.", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "문서를 올리면 AI가 뽑은 결정·할 일 후보가 여기로 들어옵니다.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SecondaryButton("문서 올리러 가기", onClick = onGoDocuments)
-            } else {
-                Text(
-                    "아직 처리한 묶음이 없습니다.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
+private fun EmptyReviews(tab: ReviewState) {
+    Text(
+        if (tab == ReviewState.OPEN) "확인할 것이 없습니다." else "처리한 것이 없습니다.",
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }

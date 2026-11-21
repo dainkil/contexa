@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.contexa.android.api.ContextApi
 import com.contexa.android.api.AcceptanceRequest
-import com.contexa.android.api.AccountRequest
 import com.contexa.android.api.ContextPacket
 import com.contexa.android.api.Direction
 import com.contexa.android.api.DocumentApi
@@ -19,25 +18,27 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class ContextSection(val label: String) { DECISIONS("결정"), TASKS("할 일"), PEOPLE("사람") }
+/** 확정 = 사람이 확인해 지금 유효한 결정, 할 일 = 확인된 할 일. AI 후보는 검토함에서만 다룬다. */
+enum class ContextSection(val label: String) { CONFIRMED("확정"), TASKS("할 일") }
 
 data class ContextUiState(
-    val section: ContextSection = ContextSection.DECISIONS,
+    val section: ContextSection = ContextSection.CONFIRMED,
     val loading: Boolean = true,
     val loadError: String? = null,
+    /** 확정된 결정을 안건별로. */
     val groups: List<TopicGroup> = emptyList(),
-    val open: List<OpenRow> = emptyList(),
+    /** "확인" 칸에 적을 알아야 하는 사항. */
+    val notices: List<Notice> = emptyList(),
     /** 내게 맡겨진 할 일만 본다. */
     val mine: Boolean = false,
     val tasks: List<TaskRow> = emptyList(),
-    val people: List<PersonRow> = emptyList(),
-    /** 바꾸는 중인 할 일·인물의 id. */
+    /** 바꾸는 중인 할 일의 id. */
     val busyId: String? = null,
     /** 한 번 보여 줄 알림. */
     val notice: String? = null,
 )
 
-/** 맥락 탭: 지금 결정된 것과 남은 것, 할 일. */
+/** 맥락 탭: 확정된 결정과 확인된 할 일. */
 class ContextViewModel(private val api: ContextApi, private val projectId: String) : ViewModel() {
 
     private val _state = MutableStateFlow(ContextUiState())
@@ -56,10 +57,9 @@ class ContextViewModel(private val api: ContextApi, private val projectId: Strin
                     it.copy(
                         loading = false,
                         loadError = null,
-                        groups = decisionBoard(current),
-                        open = openRows(current),
-                        tasks = taskRows(tasks),
-                        people = personRows(current),
+                        groups = confirmedBoard(current),
+                        notices = notices(current),
+                        tasks = taskRows(tasks).filter { row -> row.canChange },
                     )
                 }
             } catch (e: CancellationException) {
@@ -88,17 +88,6 @@ class ContextViewModel(private val api: ContextApi, private val projectId: Strin
     fun accept(row: TaskRow, accepted: Boolean) = change(row.task.node.id) {
         api.acceptance(projectId, row.task.node.id, AcceptanceRequest(accepted))
         if (accepted) "수락했습니다." else "거절했습니다."
-    }
-
-    /** 이 인물이 이 이메일의 계정이라고 확인한다. 그 계정의 "내 할 일"에 이 인물이 맡은 일이 나온다. */
-    fun linkAccount(row: PersonRow, email: String) = change(row.person.node.id) {
-        api.linkAccount(projectId, row.person.node.id, AccountRequest(email.trim()))
-        "${row.person.label}에 계정을 연결했습니다."
-    }
-
-    fun unlinkAccount(row: PersonRow) = change(row.person.node.id) {
-        api.linkAccount(projectId, row.person.node.id, AccountRequest(null))
-        "${row.person.label}의 계정 연결을 끊었습니다."
     }
 
     /** 카드 하나를 바꾸고 새로 읽는다. 조건이 따라 바뀔 수 있어 화면 전체를 다시 불러온다. */

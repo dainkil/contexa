@@ -4,18 +4,26 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,155 +34,206 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.contexa.android.api.ArtifactSummary
-import com.contexa.android.api.GenKind
-import com.contexa.android.ui.components.ChoiceChip
-import com.contexa.android.ui.components.PrimaryButton
-import com.contexa.android.ui.components.SecondaryButton
-import com.contexa.android.ui.components.Tag
-import com.contexa.android.ui.documents.LANGUAGES
-import com.contexa.android.ui.documents.formatInstant
-import com.contexa.android.ui.documents.languageLabel
-
-fun kindLabel(kind: GenKind): String = when (kind) {
-    GenKind.ANSWER -> "질문"
-    GenKind.BRIEFING -> "브리핑"
-    GenKind.DRAFT -> "초안"
-}
+import androidx.lifecycle.repeatOnLifecycle
+import com.contexa.android.api.ArtifactStatus
+import com.contexa.android.api.Source
+import com.contexa.android.ui.components.ScreenTitle
 
 /**
- * 질문 탭: 프로젝트의 확인된 결정과 근거를 바탕으로 AI에게 묻는다. 지난 질문을 다시 열 수 있다.
+ * 질문 탭: 대화처럼 묻는다. 내 질문은 오른쪽, AI의 답은 왼쪽에 쌓이고, 아래 입력 칸으로 이어서 묻는다.
  *
- * @param onOpenAnswer 답변 화면을 연다
+ * @param onOpenSource 답이 인용한 발언을 원문 뷰어에서 연다
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AskScreen(viewModel: AskViewModel, onOpenAnswer: (artifactId: String) -> Unit, modifier: Modifier = Modifier) {
+fun AskScreen(viewModel: AskViewModel, onOpenSource: (Source) -> Unit, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val list = rememberLazyListState()
 
-    // 이 탭이 보일 때마다 새로 읽는다. 답변 화면에 다녀오면 "쓰는 중"이 "답변 있음"으로 바뀌어 있다.
-    LaunchedEffect(viewModel) { viewModel.reload() }
+    // 화면이 보이는 동안에만 불러오고 답을 기다린다.
+    val owner = LocalLifecycleOwner.current
+    LaunchedEffect(owner, viewModel) {
+        owner.repeatOnLifecycle(Lifecycle.State.STARTED) { viewModel.watch() }
+    }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("질문", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    "확인된 결정과 회의 원문을 근거로 답합니다. 답변에는 근거 발언이 번호로 붙습니다.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                val error = questionError(state.question) ?: state.askError
-                OutlinedTextField(
-                    value = state.question,
-                    onValueChange = viewModel::editQuestion,
-                    placeholder = { Text("예: 인쇄는 언제 발주하기로 했나요?") },
-                    isError = error != null,
-                    supportingText = error?.let { { Text(it) } },
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
-                    minLines = 3,
-                    maxLines = 8,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    itemVerticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("답변 언어", style = MaterialTheme.typography.titleSmall)
-                    LANGUAGES.forEach { language ->
-                        ChoiceChip(language.label, selected = state.lang == language.code, onClick = { viewModel.pickLang(language.code) })
-                    }
-                }
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    // 새 질문이나 새 답이 생기면 맨 아래로 간다. 차례마다 질문·답 두 칸이다.
+    val answered = state.turns.count { it.view?.status == ArtifactStatus.PUBLISHED }
+    LaunchedEffect(state.turns.size, answered) {
+        if (state.turns.isNotEmpty()) list.scrollToItem(state.turns.size * 2 - 1)
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        ScreenTitle("질문", modifier = Modifier.padding(horizontal = 16.dp))
+
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            when {
+                state.turns.isNotEmpty() -> LazyColumn(
+                    state = list,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    PrimaryButton(
-                        "질문하기",
-                        onClick = { viewModel.ask(onOpenAnswer) },
-                        enabled = canAsk(state.question),
-                        loading = state.asking,
-                    )
-                    // 질문 없이 프로젝트 현황을 정리해 받는다.
-                    SecondaryButton("브리핑 받기", onClick = { viewModel.askBriefing(onOpenAnswer) }, enabled = !state.asking)
+                    state.turns.forEach { turn ->
+                        item(key = "q:${turn.id}") { QuestionBubble(turn.question) }
+                        item(key = "a:${turn.id}") { AnswerBubble(turn, state.gaveUp, onOpenSource) }
+                    }
                 }
+
+                state.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+
+                state.loadError == null -> Text(
+                    "프로젝트에 대해 물어보세요.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.Center),
+                )
             }
         }
-
-        item { Text("지난 질문", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
 
         state.loadError?.let { message ->
-            item {
-                Column {
-                    Text(message, color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = viewModel::reload) { Text("다시 불러오기") }
-                }
+            Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = viewModel::reload) { Text("다시 불러오기") }
+            }
+        }
+        if (state.gaveUp) {
+            Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(STILL_WAITING_MESSAGE, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                TextButton(onClick = viewModel::reload) { Text("다시 확인") }
             }
         }
 
-        when {
-            state.history.isNotEmpty() -> items(state.history, key = { it.id }) { row ->
-                HistoryRow(row, onClick = { onOpenAnswer(row.id) })
-            }
+        InputBar(
+            text = state.input,
+            error = questionError(state.input) ?: state.sendError,
+            sending = state.sending,
+            onChange = viewModel::editInput,
+            onSend = viewModel::send,
+        )
+    }
+}
 
-            state.loading -> item {
-                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+private val Mine = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 4.dp)
+private val Theirs = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 4.dp, bottomEnd = 20.dp)
+
+@Composable
+private fun QuestionBubble(question: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Surface(color = MaterialTheme.colorScheme.primary, shape = Mine, modifier = Modifier.widthIn(max = 300.dp)) {
+            Text(
+                question,
+                style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
+    }
+}
+
+/** 답 하나. 쓰는 중이면 그렇다고, 실패했으면 이유를, 다 썼으면 본문과 인용한 발언을 보여 준다. */
+@Composable
+private fun AnswerBubble(turn: ChatTurn, gaveUp: Boolean, onOpenSource: (Source) -> Unit) {
+    val view = turn.view
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = Theirs, modifier = Modifier.widthIn(max = 320.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                when (view?.status) {
+                    null, ArtifactStatus.PENDING -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (!gaveUp) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text(
+                            if (gaveUp) "아직 답이 없습니다." else "답을 쓰는 중…",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    ArtifactStatus.FAILED -> Text(
+                        listOfNotNull("답을 쓰지 못했습니다.", view.failure).joinToString("\n"),
+                        style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+
+                    ArtifactStatus.PUBLISHED -> {
+                        Text(
+                            view.content.orEmpty(),
+                            style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
+                        )
+                        if (view.stale.isNotEmpty()) {
+                            // 답을 쓴 뒤에 참고한 내용이 바뀌었다. 답이 지금 사실과 다를 수 있다.
+                            Text(
+                                "이 답을 쓴 뒤 근거가 바뀌었습니다. 다시 물어보세요.",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        if (view.citations.isNotEmpty()) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            // 본문의 [1], [2]는 이 목록의 순서다. 누르면 원문에서 그 발언을 연다.
+                            view.citations.forEachIndexed { index, source ->
+                                Text(
+                                    "[${index + 1}] " + listOfNotNull(source.speaker, source.text).joinToString(": "),
+                                    style = MaterialTheme.typography.labelLarge.copy(textDirection = TextDirection.Content),
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.fillMaxWidth().clickable { onOpenSource(source) },
+                                )
+                            }
+                        }
+                    }
                 }
-            }
-
-            state.loadError == null -> item {
-                Text(
-                    "아직 질문한 적이 없습니다. 내가 한 질문만 여기에 보입니다.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HistoryRow(row: ArtifactSummary, onClick: () -> Unit) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun InputBar(text: String, error: String?, sending: Boolean, onChange: (String) -> Unit, onSend: () -> Unit) {
+    Column {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        error?.let {
             Text(
-                "${kindLabel(row.kind)} · ${languageLabel(row.lang)}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                it,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
             )
-            Text(
-                row.question,
-                style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Content),
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = onChange,
+                placeholder = { Text("질문을 입력하세요") },
+                textStyle = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
+                shape = RoundedCornerShape(24.dp),
+                maxLines = 4,
+                modifier = Modifier.weight(1f),
             )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                itemVerticalAlignment = Alignment.CenterVertically,
+            FilledIconButton(
+                onClick = onSend,
+                enabled = canAsk(text) && !sending,
+                shape = CircleShape,
+                modifier = Modifier.size(52.dp),
             ) {
-                if (row.published) {
-                    Tag(
-                        "답변 있음",
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        container = MaterialTheme.colorScheme.primaryContainer,
-                    )
+                if (sending) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 } else {
-                    // 목록만으로는 쓰는 중인지 실패했는지 알 수 없다. 열어 보면 나온다.
-                    Tag("답변 없음")
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "보내기")
                 }
-                Text(
-                    formatInstant(row.createdAt),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }

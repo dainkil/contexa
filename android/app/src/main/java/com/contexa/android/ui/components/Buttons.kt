@@ -19,7 +19,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.contexa.android.ui.theme.disabledContainer
 import com.contexa.android.ui.theme.disabledContent
@@ -30,7 +29,7 @@ import com.contexa.android.ui.theme.disabledContent
  */
 private val ButtonShape = RoundedCornerShape(12.dp)
 private val ButtonPadding = PaddingValues(horizontal = 20.dp)
-private val ButtonHeight = 52.dp
+private val ButtonHeight = 48.dp
 
 /** 주 버튼(brandSolid): 초록으로 채운다. loading이면 글자 대신 돌아가는 표시를 보여 주고 누를 수 없다. */
 @Composable
@@ -84,7 +83,7 @@ fun SecondaryButton(label: String, onClick: () -> Unit, modifier: Modifier = Mod
 }
 
 @Composable
-private fun ButtonLabel() = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
+private fun ButtonLabel() = MaterialTheme.typography.labelLarge
 
 /** 작은 꼬리표(종류·언어·상태 등). */
 @Composable
@@ -102,7 +101,7 @@ fun Tag(
     ) {
         Text(
             text,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelLarge,
             color = color,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
         )
@@ -119,7 +118,7 @@ fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: 
     FilterChip(
         selected = selected,
         onClick = onClick,
-        label = { Text(label, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)) },
+        label = { Text(label, style = MaterialTheme.typography.labelLarge) },
         shape = CircleShape,
         colors = FilterChipDefaults.filterChipColors(
             containerColor = Color.Transparent,

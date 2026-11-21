@@ -1,22 +1,20 @@
 package com.contexa.android.ui.context
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +30,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,25 +40,25 @@ import com.contexa.android.api.NodeRef
 import com.contexa.android.api.ReviewStatus
 import com.contexa.android.api.TaskStatus
 import com.contexa.android.ui.components.ChoiceChip
+import com.contexa.android.ui.components.KeyValue
 import com.contexa.android.ui.components.PrimaryButton
+import com.contexa.android.ui.components.ScreenTitle
 import com.contexa.android.ui.components.SecondaryButton
 import com.contexa.android.ui.components.Tag
 import com.contexa.android.ui.reviews.formatDay
 import com.contexa.android.ui.reviews.stateLabel
 import com.contexa.android.ui.reviews.statusLabel
-import com.contexa.android.ui.reviews.typeLabel
 
 /**
- * 맥락 탭: 지금 결정된 것과 남은 것, 그리고 할 일.
+ * 맥락 탭: 사람이 확인해 확정된 것만 보여 준다(AI 후보를 판단하는 곳은 검토함이다).
+ * "확정"은 안건에서 결정으로 이어지는 그림과 알아야 하는 사항, "할 일"은 확인된 할 일이다.
  *
- * @param canReview     소유자·검토자인가. 인물에 계정을 연결하는 것은 이들만 한다
  * @param onOpenHistory 결정 항목의 이력을 연다
- * @param onOpenTrace   카드의 근거·영향을 따라가 본다
+ * @param onOpenTrace   할 일의 근거를 따라가 본다
  */
 @Composable
 fun ContextScreen(
     viewModel: ContextViewModel,
-    canReview: Boolean,
     onNotice: (String) -> Unit,
     onOpenHistory: (itemId: String) -> Unit,
     onOpenTrace: (NodeRef) -> Unit,
@@ -79,16 +79,11 @@ fun ContextScreen(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("맥락", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    "지금 무엇이 결정됐고 무엇이 남았는지, 누가 무엇을 해야 하는지 봅니다.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ScreenTitle("맥락")
                 Chips {
                     ContextSection.entries.forEach { section ->
                         Choice(section.label, selected = state.section == section) { viewModel.show(section) }
@@ -100,125 +95,130 @@ fun ContextScreen(
         state.loadError?.let { message ->
             item {
                 Column {
-                    Text(message, color = MaterialTheme.colorScheme.error)
+                    Text(message, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
                     TextButton(onClick = viewModel::reload) { Text("다시 불러오기") }
                 }
             }
         }
 
         when (state.section) {
-            ContextSection.DECISIONS -> decisions(state, onOpenHistory, onOpenTrace)
+            ContextSection.CONFIRMED -> confirmed(state, onOpenHistory)
             ContextSection.TASKS -> tasks(state, viewModel, onOpenTrace)
-            ContextSection.PEOPLE -> people(state, viewModel, canReview)
         }
     }
 }
 
-private fun LazyListScope.decisions(state: ContextUiState, onOpenHistory: (String) -> Unit, onOpenTrace: (NodeRef) -> Unit) {
-    if (state.open.isNotEmpty()) {
-        item {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("남은 것 ${state.open.size}건", style = MaterialTheme.typography.titleMedium)
-                    state.open.forEach { row ->
-                        Column {
-                            Text(
-                                openCaption(row),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            row.label?.let {
-                                Text(
-                                    it,
-                                    style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Content),
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+private fun LazyListScope.confirmed(state: ContextUiState, onOpenHistory: (String) -> Unit) {
+    if (state.notices.isNotEmpty()) {
+        item(key = "notices") { NoticeBox(state.notices) }
     }
-
-    val empty = state.groups.all { it.rows.isEmpty() }
     when {
-        state.loading && empty -> item { Loading() }
+        state.groups.isNotEmpty() -> items(state.groups, key = { "topic:${it.topic?.node?.id}" }) { group ->
+            DecisionTree(group, onOpenHistory)
+        }
 
-        empty && state.loadError == null -> item {
+        state.loading -> item { Loading() }
+
+        state.loadError == null -> item {
             Text(
-                "아직 결정 항목이 없습니다. 검토함에서 AI 후보를 확인하면 여기에 나타납니다.",
-                style = MaterialTheme.typography.bodyMedium,
+                "아직 확정된 결정이 없습니다.",
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-
-        else -> state.groups.forEach { group ->
-            item(key = "topic:${group.topic?.node?.id}") {
-                Column(modifier = Modifier.padding(top = 8.dp)) {
-                    Text("안건", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        group.topic?.label ?: "안건에 묶이지 않은 결정",
-                        style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Content),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    if (group.rows.isEmpty()) {
-                        Text(
-                            "아직 결정 항목이 없습니다.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            items(group.rows, key = { "item:${group.topic?.node?.id}:${it.item.node.id}" }) { row ->
-                DecisionCard(row, onOpenHistory, onOpenTrace)
-            }
-        }
     }
 }
 
+/** "확인" 칸: 확정된 것을 볼 때 함께 알아야 하는 사항. */
 @Composable
-private fun DecisionCard(row: DecisionRow, onOpenHistory: (String) -> Unit, onOpenTrace: (NodeRef) -> Unit) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chips {
-                row.item.states["decisionState"]?.let { DecisionStateTag(it) }
-                ReviewStatusTag(row.item)
-            }
-            Text(
-                row.item.label,
-                style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Content),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            val current = row.current
-            if (current != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+private fun NoticeBox(notices: List<Notice>) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("확인", style = MaterialTheme.typography.titleMedium)
+            notices.forEach { notice ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        if (notice.count > 1) "${notice.kind} ${notice.count}건" else notice.kind,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    notice.text?.let {
                         Text(
-                            listOfNotNull("지금 유효한 결정", current.states["occurredAt"]?.let(::formatDay)).joinToString(" · "),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            current.label,
+                            it,
                             style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
             }
-            Chips {
-                TextButton(onClick = { onOpenHistory(row.item.node.id) }) { Text("이력 보기") }
-                TextButton(onClick = { onOpenTrace((current ?: row.item).node) }) { Text("근거 따라가기") }
+        }
+    }
+}
+
+private val Gutter = 28.dp
+private val Trunk = 12.dp
+private val Elbow = 40.dp
+
+/**
+ * 안건 하나를 나무 그림으로: 위에 안건, 거기서 선이 내려와 결정마다 가지를 친다.
+ * 결정 칸을 누르면 그 결정이 어떻게 바뀌어 왔는지(이력)를 연다.
+ */
+@Composable
+private fun DecisionTree(group: TopicGroup, onOpenHistory: (String) -> Unit) {
+    val line = MaterialTheme.colorScheme.outline
+    Column {
+        Surface(color = MaterialTheme.colorScheme.secondary, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                group.topic?.label ?: "안건 없음",
+                style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Content),
+                color = MaterialTheme.colorScheme.onSecondary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            )
+        }
+        group.rows.forEachIndexed { index, row ->
+            val last = index == group.rows.lastIndex
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .drawBehind {
+                        val x = Trunk.toPx()
+                        val y = Elbow.toPx()
+                        val stroke = 2.dp.toPx()
+                        // 줄기는 마지막 가지에서 끝난다.
+                        drawLine(line, Offset(x, 0f), Offset(x, if (last) y else size.height), stroke)
+                        drawLine(line, Offset(x, y), Offset(Gutter.toPx(), y), stroke)
+                    }
+                    .padding(start = Gutter, top = 12.dp),
+            ) {
+                DecisionNode(row, onClick = { onOpenHistory(row.item.node.id) })
+            }
+        }
+    }
+}
+
+/** 결정 하나: 무엇을 정했나(항목), 어떻게 정했나(지금 유효한 결정), 언제. */
+@Composable
+private fun DecisionNode(row: DecisionRow, onClick: () -> Unit) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                row.item.label,
+                style = MaterialTheme.typography.labelLarge.copy(textDirection = TextDirection.Content),
+                color = MaterialTheme.colorScheme.primary,
+            )
+            row.current?.let { current ->
+                Text(
+                    current.label,
+                    style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                current.states["occurredAt"]?.takeIf { it.isNotEmpty() }?.let {
+                    Text(formatDay(it), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }
@@ -227,7 +227,7 @@ private fun DecisionCard(row: DecisionRow, onOpenHistory: (String) -> Unit, onOp
 private fun LazyListScope.tasks(state: ContextUiState, viewModel: ContextViewModel, onOpenTrace: (NodeRef) -> Unit) {
     item {
         Chips {
-            Choice("모든 할 일", selected = !state.mine) { viewModel.showMine(false) }
+            Choice("전체", selected = !state.mine) { viewModel.showMine(false) }
             Choice("내 할 일", selected = state.mine) { viewModel.showMine(true) }
         }
     }
@@ -248,12 +248,8 @@ private fun LazyListScope.tasks(state: ContextUiState, viewModel: ContextViewMod
 
         state.loadError == null -> item {
             Text(
-                if (state.mine) {
-                    "내게 맡겨진 할 일이 없습니다. 내 계정이 인물에 연결돼 있어야 여기에 나타납니다. 연결은 소유자·검토자가 \"사람\"에서 합니다."
-                } else {
-                    "아직 할 일이 없습니다. 검토함에서 AI 후보를 확인하면 여기에 나타납니다."
-                },
-                style = MaterialTheme.typography.bodyMedium,
+                if (state.mine) "내게 맡겨진 할 일이 없습니다." else "아직 확인된 할 일이 없습니다.",
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -261,6 +257,8 @@ private fun LazyListScope.tasks(state: ContextUiState, viewModel: ContextViewMod
 }
 
 /**
+ * 할 일 한 장: 무엇을, 누가, 언제까지. 카드를 누르면 근거를 따라가 본다.
+ *
  * @param canAccept 내 할 일을 보고 있을 때만 수락·거절을 보여 준다(server도 담당자 본인만 받아 준다)
  */
 @Composable
@@ -273,196 +271,45 @@ private fun TaskCard(
     onAccept: (Boolean) -> Unit,
     onOpenTrace: () -> Unit,
 ) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chips {
-                row.task.states["workStatus"]?.let {
-                    Tag(
-                        stateLabel("workStatus", it),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        container = MaterialTheme.colorScheme.primaryContainer,
-                    )
-                }
-                ReviewStatusTag(row.task)
-            }
+    OutlinedCard(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenTrace)) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 row.task.label,
                 style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Content),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Text(
-                listOfNotNull(
-                    "담당 " + row.assignees.joinToString(", ").ifEmpty { "미정" },
-                    "기한 " + (row.dueAt?.let(::formatDay) ?: "미정"),
-                    row.acceptance?.let { stateLabel("acceptance", it) },
-                ).joinToString(" · "),
-                style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Content),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (canAccept && row.awaitingAcceptance) {
-                Chips {
-                    PrimaryButton("수락", onClick = { onAccept(true) }, enabled = enabled, loading = busy)
-                    SecondaryButton("거절", onClick = { onAccept(false) }, enabled = enabled)
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                KeyValue("담당", row.assignees.joinToString(", ").ifEmpty { "미정" })
+                KeyValue("기한", row.dueAt?.takeIf { it.isNotEmpty() }?.let(::formatDay) ?: "미정")
+                row.acceptance?.let { KeyValue("수락", stateLabel("acceptance", it)) }
             }
-            Chips {
-                if (row.canChange) {
-                    Box {
-                        var open by remember { mutableStateOf(false) }
-                        TextButton(onClick = { open = true }, enabled = enabled) {
-                            Text(if (busy) "바꾸는 중…" else "상태 바꾸기 ▾")
-                        }
-                        DropdownMenu(
-                            expanded = open,
-                            onDismissRequest = { open = false },
-                            containerColor = MaterialTheme.colorScheme.surface,
-                        ) {
-                            nextStatuses(row.workStatus).forEach { next ->
-                                DropdownMenuItem(
-                                    text = { Text(stateLabel("workStatus", next.name)) },
-                                    onClick = {
-                                        open = false
-                                        onChange(next)
-                                    },
-                                )
-                            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box {
+                    var open by remember { mutableStateOf(false) }
+                    val status = row.task.states["workStatus"]?.let { stateLabel("workStatus", it) } ?: "상태"
+                    SecondaryButton(if (busy) "바꾸는 중…" else "$status ▾", onClick = { open = true }, enabled = enabled)
+                    DropdownMenu(
+                        expanded = open,
+                        onDismissRequest = { open = false },
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ) {
+                        nextStatuses(row.workStatus).forEach { next ->
+                            DropdownMenuItem(
+                                text = { Text(stateLabel("workStatus", next.name), style = MaterialTheme.typography.bodyLarge) },
+                                onClick = {
+                                    open = false
+                                    onChange(next)
+                                },
+                            )
                         }
                     }
                 }
-                TextButton(onClick = onOpenTrace) { Text("근거 따라가기") }
+                if (canAccept && row.awaitingAcceptance) {
+                    PrimaryButton("수락", onClick = { onAccept(true) }, enabled = enabled)
+                    SecondaryButton("거절", onClick = { onAccept(false) }, enabled = enabled)
+                }
             }
         }
-    }
-}
-
-private fun LazyListScope.people(state: ContextUiState, viewModel: ContextViewModel, canReview: Boolean) {
-    item {
-        Text(
-            "회의에 나온 사람을 앱 계정에 연결합니다. 연결하면 그 사람이 맡은 일이 그 계정의 \"내 할 일\"에 나타나고, 본인이 수락·거절할 수 있습니다.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-    when {
-        state.people.isNotEmpty() -> items(state.people, key = { "person:${it.person.node.id}" }) { row ->
-            PersonCard(
-                row = row,
-                canReview = canReview,
-                busy = state.busyId == row.person.node.id,
-                enabled = state.busyId == null,
-                onLink = { viewModel.linkAccount(row, it) },
-                onUnlink = { viewModel.unlinkAccount(row) },
-            )
-        }
-
-        state.loading -> item { Loading() }
-
-        state.loadError == null -> item {
-            Text(
-                "아직 사람이 없습니다. 검토함에서 인물 후보를 확인하면 여기에 나타납니다.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun PersonCard(
-    row: PersonRow,
-    canReview: Boolean,
-    busy: Boolean,
-    enabled: Boolean,
-    onLink: (email: String) -> Unit,
-    onUnlink: () -> Unit,
-) {
-    var linking by remember { mutableStateOf(false) }
-    var unlinking by remember { mutableStateOf(false) }
-
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chips {
-                if (row.linked) {
-                    Tag(
-                        "계정 연결됨",
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        container = MaterialTheme.colorScheme.primaryContainer,
-                    )
-                } else {
-                    Tag("계정 없음")
-                }
-                ReviewStatusTag(row.person)
-            }
-            Text(
-                row.person.label,
-                style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Content),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            when {
-                !canReview -> Unit
-                busy -> Text("바꾸는 중…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                row.linked -> Chips {
-                    if (row.canLink) TextButton(onClick = { linking = true }, enabled = enabled) { Text("다른 계정으로 바꾸기") }
-                    TextButton(onClick = { unlinking = true }, enabled = enabled) { Text("연결 끊기") }
-                }
-                row.canLink -> SecondaryButton("계정 연결", onClick = { linking = true }, enabled = enabled)
-                else -> Text(
-                    "확인된 사람에게만 계정을 연결할 수 있습니다. 먼저 검토함에서 이 사람을 확인하세요.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-
-    if (linking) {
-        var email by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { linking = false },
-            containerColor = MaterialTheme.colorScheme.surface,
-            title = { Text("계정 연결") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("${row.person.label}의 가입 이메일을 적습니다. 이 프로젝트의 구성원이어야 하고, 한 계정은 한 사람에게만 연결됩니다.")
-                    OutlinedTextField(
-                        value = email,
-                        onValueChange = { email = it },
-                        label = { Text("이메일") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        linking = false
-                        onLink(email)
-                    },
-                    enabled = canSubmitEmail(email),
-                ) { Text("연결") }
-            },
-            dismissButton = { TextButton(onClick = { linking = false }) { Text("취소") } },
-        )
-    }
-
-    if (unlinking) {
-        AlertDialog(
-            onDismissRequest = { unlinking = false },
-            containerColor = MaterialTheme.colorScheme.surface,
-            title = { Text("연결을 끊을까요?") },
-            text = { Text("${row.person.label}이(가) 맡은 일이 그 계정의 \"내 할 일\"에서 빠지고, 그 계정으로는 수락·거절을 할 수 없게 됩니다.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        unlinking = false
-                        onUnlink()
-                    },
-                ) { Text("연결 끊기") }
-            },
-            dismissButton = { TextButton(onClick = { unlinking = false }) { Text("취소") } },
-        )
     }
 }
 

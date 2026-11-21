@@ -27,7 +27,7 @@ public class GenerationController {
 		this.generation = generation;
 	}
 
-	/** 질문한다. 바로 돌아오고, 답변은 AI 인턴이 쓴 뒤에 생긴다. kind를 생략하면 ANSWER, lang을 생략하면 ko. */
+	/** 질문한다. 바로 돌아오고, 답변은 AI 인턴이 쓴 뒤에 생긴다. kind를 생략하면 ANSWER, lang을 생략하면 질문을 쓴 언어로 답한다. */
 	@PostMapping
 	public GenerationRequested ask(Caller caller, @RequestBody AskRequest request) {
 		return generation.requestGeneration(caller, request.kind() == null ? GenKind.ANSWER : request.kind(),

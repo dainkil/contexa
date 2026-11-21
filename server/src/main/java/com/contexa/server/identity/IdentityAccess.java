@@ -82,6 +82,17 @@ public class IdentityAccess {
 		return id;
 	}
 
+	/** 가입한 사람의 이메일과 이름. 설정 화면이 "내 정보"로 보여 준다. */
+	public record Profile(String email, String displayName) {
+	}
+
+	@Transactional(readOnly = true)
+	public Profile profileOf(UUID userId) {
+		return jdbc.sql("select email, display_name from app_user where id = :id").param("id", userId)
+				.query((rs, n) -> new Profile(rs.getString("email"), rs.getString("display_name"))).optional()
+				.orElseThrow(() -> new UnauthenticatedException("없는 사용자다"));
+	}
+
 	/**
 	 * 로그인하고 접속 토큰을 발급한다. 토큰 원문은 여기서 한 번만 돌려준다.
 	 * 이메일이 없는 경우와 비밀번호가 틀린 경우를 구분해서 알려주지 않는다.

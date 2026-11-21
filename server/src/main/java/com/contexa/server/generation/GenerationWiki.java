@@ -84,7 +84,7 @@ public class GenerationWiki {
 	/**
 	 * 글을 요청한다. 프로젝트 구성원인 사람만 할 수 있다. 바로 돌아오고, 글은 AI 인턴이 쓴 뒤에 생긴다.
 	 *
-	 * @param lang 글의 언어(ko, en, ar). null이면 ko
+	 * @param lang 글의 언어(ko, en, ar). null이면 AI 인턴이 질문을 쓴 언어로 답한다
 	 */
 	@Transactional
 	public GenerationRequested requestGeneration(Caller caller, GenKind kind, String question, String lang) {
@@ -96,8 +96,8 @@ public class GenerationWiki {
 		if (question == null || question.isBlank() || question.length() > MAX_QUESTION) {
 			throw new IllegalArgumentException("질문은 1~" + MAX_QUESTION + "자여야 한다");
 		}
-		String language = lang == null ? "ko" : lang;
-		if (!LANGS.contains(language)) {
+		String language = lang;
+		if (language != null && !LANGS.contains(language)) {
 			throw new IllegalArgumentException("언어는 ko, en, ar 중 하나여야 한다: " + lang);
 		}
 		UUID artifactId = UUID.randomUUID();

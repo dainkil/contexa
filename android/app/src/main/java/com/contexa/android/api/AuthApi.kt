@@ -15,6 +15,10 @@ interface AuthApi {
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequest): TokenResponse
 
+    /** 로그인한 사람의 이메일과 이름. */
+    @GET("auth/me")
+    suspend fun me(): Profile
+
     /** 내가 속한 프로젝트와 각 프로젝트에서의 역할. */
     @GET("projects")
     suspend fun listProjects(): List<ProjectSummary>
@@ -37,6 +41,9 @@ data class UserIdResponse(val userId: String)
 
 @Serializable
 data class TokenResponse(val token: String)
+
+@Serializable
+data class Profile(val email: String, val displayName: String)
 
 @Serializable
 data class IdResponse(val id: String)
