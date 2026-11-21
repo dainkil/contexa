@@ -128,7 +128,7 @@ private fun LazyListScope.decisions(state: ContextUiState, onOpenHistory: (Strin
                     state.open.forEach { row ->
                         Column {
                             Text(
-                                listOfNotNull(openLabel(row.kind), row.node?.let { typeLabel(it.type) }).joinToString(" · "),
+                                openCaption(row),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
