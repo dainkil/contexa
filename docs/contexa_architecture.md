@@ -1,6 +1,6 @@
 # Contexa 아키텍처
 
-> 작성일: 2026-11-15 · 대상: 개발팀 · 근거: 제안서 부록 A, 모듈 지도 v2, `server/` 코드를 대조해 정리
+> 작성일: 2026-11-15 · 고친 날: 2026-11-21(클라이언트를 Android 앱으로, 구현 상태 갱신) · 대상: 개발팀 · 근거: 제안서 부록 A, 모듈 지도 v2, `server/` 코드를 대조해 정리
 
 Java 모듈형 모놀리스 하나가 업무 기록과 규칙을 모두 갖고, Python AI 처리부가 LangGraph로 분석·생성을 돌려 후보만 제출하는 구조다. 저장소는 PostgreSQL 하나다.
 
@@ -10,16 +10,16 @@ Java 모듈형 모놀리스 하나가 업무 기록과 규칙을 모두 갖고, 
 |---|---|
 | LLM 위키를 쓰나? | 쓴다. 다만 제품이 아니라 방식이다. 확인된 결정과 원문으로 안건별 페이지 갱신안을 LLM이 만들고, 사람이 검토해 버전으로 쌓는다. 서버에서는 `generation-wiki` 모듈이 맡고, 위키 페이지는 `ARTIFACT` 노드로 저장된다. |
 | LangChain · LangGraph · LangSmith는? | 셋 다 Python AI 처리부 안에서만 쓴다. LangChain은 모델·임베딩 연결, LangGraph는 단계 제어와 복구, LangSmith는 추적·평가다. Java 서버는 이 셋을 모른다. |
-| 지금 어디까지 만들었나? | Java 13개 모듈 중 2개(`shared-contract`, `decision-graph`)와 `graph_edge` 테이블 하나. Python, React, LangChain 계열 코드는 아직 없다. |
+| 지금 어디까지 만들었나? | (2026-11-21 기준) Java 13개 모듈 전부, Python AI 일꾼(자르기·후보 뽑기·답변), Android 앱(자료함·검토함·질문·맥락)이 동작한다. LangChain 계열, 임베딩 검색, 위키, 파일 저장소는 아직 없다. 자세한 것은 8장. |
 
 ## 2. 전체 구성
 
-`[구현됨]` 표시가 없는 것은 모두 설계만 된 상태다.
+Java 서버의 모듈은 모두 구현됐다. Python 쪽의 LangGraph·LangChain·`embed_api`, CLOVA Studio, LangSmith, 체크포인트, Object Storage는 설계이고 아직 만들지 않았다. 지금 AI 처리부는 표준 라이브러리와 Claude API로 만든 일꾼 하나다(8장).
 
 ```mermaid
 flowchart TB
     subgraph CLIENT["클라이언트"]
-        WEB["React · TypeScript 웹<br/>contextClient.ts (읽기) · reviewClient.ts (쓰기)"]
+        WEB["Android 앱 · Kotlin · Compose<br/>ContextApi (읽기) · ReviewApi (쓰기)"]
         AGENT["외부 AI 에이전트<br/>MCP 도구: 조회 6개 + 후보 제안 1개"]
     end
 
@@ -33,11 +33,11 @@ flowchart TB
         RET["4층 retrieval"]
         ENT["4층 entity-review"]
         DT["4층 decision-task"]
-        GR["3층 decision-graph [구현됨]"]
+        GR["3층 decision-graph"]
         DOC["2층 document-evidence"]
         IAM["1층 identity-access"]
         JOB["1층 job-operation"]
-        CON["0층 shared-contract [구현됨]"]
+        CON["0층 shared-contract"]
         API --> PL --> GEN --> GW
         API --> RV
         PL --> RV
@@ -67,7 +67,7 @@ flowchart TB
         LS["LangSmith<br/>추적 · 평가"]
     end
 
-    DB[("PostgreSQL 16 + pgvector · :5434<br/>graph_edge [구현됨] · 그 외 테이블")]
+    DB[("PostgreSQL 16 + pgvector · :5434<br/>업무 원장 · graph_edge")]
     CP[("LangGraph 체크포인트<br/>독립 스키마 · 실행 복구 상태")]
     OBJ[("비공개 Object Storage<br/>원본 파일 · 선택적 녹음")]
 
@@ -165,7 +165,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     actor U as 사용자
-    participant W as React 웹
+    participant W as Android 앱
     participant J as Java 업무 서버
     participant D as PostgreSQL
     participant P as Python LangGraph
@@ -193,7 +193,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor U as 사용자
-    participant W as React 웹
+    participant W as Android 앱
     participant J as Java 업무 서버
     participant D as PostgreSQL
     participant P as Python LangGraph
@@ -228,16 +228,16 @@ sequenceDiagram
 
 | 영역 | 기술 | 맡는 일 | 상태 |
 |---|---|---|---|
-| 업무 서버 | Java 21 · Spring Boot 4 · JdbcClient · Flyway | 권한, 상태 전이, 결정 그래프, 작업 큐, 감사 | 2/13 모듈 |
-| 데이터 | PostgreSQL 16 · pgvector | 업무 원장, 그래프, 임베딩 검색 | `graph_edge`만 |
-| AI 처리부 | Python · FastAPI | 작업 워커, `/embed` | 미착수 |
+| 업무 서버 | Java 21 · Spring Boot 4 · JdbcClient · Flyway | 권한, 상태 전이, 결정 그래프, 작업 큐, 감사 | 13개 모듈 구현 |
+| 데이터 | PostgreSQL 16 · pgvector | 업무 원장, 그래프, 임베딩 검색 | 원장·그래프 구현. 임베딩 검색은 없고 글자 일치로 찾는다 |
+| AI 처리부 | Python · FastAPI | 작업 워커, `/embed` | 일꾼 구현(표준 라이브러리 + `anthropic`). FastAPI·`/embed`는 미착수 |
 | 모델 연결 | LangChain | 챗 모델, 임베딩, 구조화 출력 어댑터 | 미착수 |
 | 처리 흐름 | LangGraph | PARSE·EXTRACT·GENERATE 단계 제어와 복구 | 미착수 |
 | 평가·추적 | LangSmith | 언어별 평가, 프롬프트·모델 비교, 지연·오류 추적 | 미착수 |
-| 생성 모델 | CLOVA Studio 우선 검토 | 후보 추출, 질의응답, 브리핑·초안·위키 | 실호출 검증 전 |
+| 생성 모델 | CLOVA Studio 우선 검토 | 후보 추출, 질의응답, 브리핑·초안·위키 | 지금은 Claude API로 후보 추출과 답변을 만든다. CLOVA 실호출은 검증 전 |
 | 지식 축적 | LLM 기반 누적 위키 | 안건별 페이지 갱신안과 버전 | 미착수 |
-| 웹 | React · TypeScript | 자료함, 검토함, 타임라인, 업무, 위키, 초안 | 미착수 |
-| 외부 연결 | MCP | 게이트웨이 조회 6개 + 후보 제안 | 미착수 |
+| 클라이언트 | Android · Kotlin · Jetpack Compose | 자료함, 검토함, 질문·답변, 결정 현황·이력, 업무, 위키, 초안 | 자료함·원문 뷰어, 검토함, 질문·답변·브리핑, 맥락(결정·이력·근거·할 일) 구현. 이름 검토, 위키, 초안 편집은 미착수. React 웹은 2026-11-21에 지웠다 |
+| 외부 연결 | MCP | 게이트웨이 조회 6개 + 후보 제안 | `McpController` 구현 |
 | 파일 | 비공개 Object Storage | 원본 파일, 선택적 녹음 | 미착수 |
 
 ## 9. 팀에서 정해야 할 것
