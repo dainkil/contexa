@@ -1,6 +1,6 @@
 # Contexa 아키텍처
 
-> 작성일: 2026-11-15 · 고친 날: 2026-11-21(클라이언트를 Android 앱으로, 구현 상태 갱신) · 대상: 개발팀 · 근거: 제안서 부록 A, 모듈 지도 v2, `server/` 코드를 대조해 정리
+> 작성일: 2026-11-15 · 고친 날: 2026-11-21(클라이언트를 Android 앱으로, 구현 상태 갱신), 2026-11-24(LangChain·LangGraph·Langfuse 역할 확정, 9장 1·2번 결정) · 대상: 개발팀 · 근거: 제안서 부록 A, 모듈 지도 v2, `server/` 코드를 대조해 정리
 
 Java 모듈형 모놀리스 하나가 업무 기록과 규칙을 모두 갖고, Python AI 처리부가 LangGraph로 분석·생성을 돌려 후보만 제출하는 구조다. 저장소는 PostgreSQL 하나다.
 
@@ -9,12 +9,12 @@ Java 모듈형 모놀리스 하나가 업무 기록과 규칙을 모두 갖고, 
 | 질문 | 답 |
 |---|---|
 | LLM 위키를 쓰나? | 쓴다. 다만 제품이 아니라 방식이다. 확인된 결정과 원문으로 안건별 페이지 갱신안을 LLM이 만들고, 사람이 검토해 버전으로 쌓는다. 서버에서는 `generation-wiki` 모듈이 맡고, 위키 페이지는 `ARTIFACT` 노드로 저장된다. |
-| LangChain · LangGraph · LangSmith는? | 셋 다 Python AI 처리부 안에서만 쓴다. LangChain은 모델·임베딩 연결, LangGraph는 단계 제어와 복구, LangSmith는 추적·평가다. Java 서버는 이 셋을 모른다. |
+| LangChain · LangGraph · Langfuse는? | 셋 다 Python AI 처리부 안에서만 쓴다. LangChain은 모델·임베딩 연결(모델을 바꿔도 이 어댑터만 바뀐다), LangGraph는 작업 한 번 안의 단계 제어, Langfuse는 추적·평가다. Java 서버는 이 셋을 모른다. LangSmith는 쓰지 않는다(4.4). |
 | 지금 어디까지 만들었나? | (2026-11-21 기준) Java 13개 모듈 전부, Python AI 일꾼(자르기·후보 뽑기·답변), Android 앱(자료함·검토함·질문·맥락)이 동작한다. LangChain 계열, 임베딩 검색, 위키, 파일 저장소는 아직 없다. 자세한 것은 8장. |
 
 ## 2. 전체 구성
 
-Java 서버의 모듈은 모두 구현됐다. Python 쪽의 LangGraph·LangChain·`embed_api`, CLOVA Studio, LangSmith, 체크포인트, Object Storage는 설계이고 아직 만들지 않았다. 지금 AI 처리부는 표준 라이브러리와 Claude API로 만든 일꾼 하나다(8장).
+Java 서버의 모듈은 모두 구현됐다. Python 쪽은 일꾼 하나이고, 모델 연결을 LangChain으로 옮기고 Langfuse 추적을 붙이는 중이다(11/24). LangGraph 그래프, `embed_api`, Object Storage는 아직 없다(8장). LangGraph 체크포인트는 두지 않기로 했다(9장 1번).
 
 ```mermaid
 flowchart TB
@@ -52,7 +52,7 @@ flowchart TB
         JOB --> CON
     end
 
-    subgraph PY["Python AI 처리부 · FastAPI"]
+    subgraph PY["Python AI 처리부"]
         direction TB
         WORKER["worker<br/>작업 임대 · 갱신 · 결과 제출"]
         LG["LangGraph<br/>PARSE · EXTRACT · GENERATE 그래프"]
@@ -63,12 +63,11 @@ flowchart TB
     end
 
     subgraph EXT["외부 서비스"]
-        MODEL["CLOVA Studio<br/>생성 · 임베딩 모델 (우선 검토)"]
-        LS["LangSmith<br/>추적 · 평가"]
+        MODEL["생성 모델<br/>기본 Claude API · LangChain으로 교체 가능"]
+        LF["Langfuse (이 컴퓨터, 선택)<br/>추적 · 평가"]
     end
 
     DB[("PostgreSQL 16 + pgvector · :5434<br/>업무 원장 · graph_edge")]
-    CP[("LangGraph 체크포인트<br/>독립 스키마 · 실행 복구 상태")]
     OBJ[("비공개 Object Storage<br/>원본 파일 · 선택적 녹음")]
 
     WEB -->|"HTTPS /api/v1"| API
@@ -76,8 +75,7 @@ flowchart TB
     WORKER <-->|"/internal/v1/jobs/*"| API
     RET -->|"POST /embed"| EMB
     LC --> MODEL
-    LG -.-> LS
-    LG --> CP
+    LG -.-> LF
     JAVA -->|"JDBC (Java만)"| DB
     DOC --> OBJ
 ```
@@ -112,7 +110,7 @@ flowchart TB
 
 ## 4. Python AI 처리부 안: LangGraph 그래프 세 개
 
-작업 종류마다 그래프 하나다. 노드 구성은 모듈 지도 부록 B.9의 함수와 제안서 A.5 흐름을 그래프로 옮긴 **안**이며, 아직 코드로 확정된 것은 아니다.
+노드 구성은 모듈 지도 부록 B.9의 함수와 제안서 A.5 흐름을 그래프로 옮긴 **안**이다. 2026-11-24 계획에서는 EXTRACT·GENERATE만 LangGraph로 만들고, PARSE는 규칙 함수로 둔다. GENERATE에는 질의 계획·다국어 질의 확장·근거 충분성 판단 루프를, EXTRACT에는 창 나누기(Send)·병합을 더한다. 그래프 상태는 작업 한 번 동안만 살고, 실패 복구는 Java 작업 임대·재시도가 맡는다.
 
 ### 4.1 PARSE · 문서 자르기
 
@@ -157,8 +155,8 @@ flowchart LR
 | 도구 | 맡는 곳 | 주의 |
 |---|---|---|
 | LangChain | 모델 호출 세 지점: 임베딩, 구조화된 후보 추출, 생성. 모델 제공업체를 바꿀 때 이 어댑터만 바꾼다 | 임베딩 모델·차원·전처리 버전은 벡터와 함께 기록한다 |
-| LangGraph | 단계 순서, 검증 실패 시 재시도, 작업 복구 | 중단·재개는 실행 편의일 뿐이다. 사람 검토는 Java DB의 검토 항목이 기준이고, 재개할 때 서버가 버전과 권한을 다시 확인한다 |
-| LangSmith | 세 그래프의 실행 추적과 고정 평가 세트(언어별 질의 30개 이상, 이름 언급 50개 이상) 비교 | 추적 로그는 업무 기록이 아니며, 외부 전송이 허용된 정보만 보낸다 |
+| LangGraph | 작업 한 번 안의 단계 순서, 검증 실패 시 고치기, 검색 루프 | 체크포인터·`interrupt`를 쓰지 않는다. 복구는 Java 작업 임대·재시도가, 사람 검토는 Java DB의 검토 항목이 맡는다 |
+| Langfuse | 호출 추적(토큰·지연·모델·프롬프트 버전, `project_id`·`job_id` 태그)과 고정 평가 세트 비교 | 이 컴퓨터에만 띄운다. 추적 로그는 업무 기록이 아니다. LangSmith는 무료 플랜이 클라우드 전용이고 자체 설치가 Enterprise 전용이라 회의 내용이 외부로 나가므로 쓰지 않는다 |
 
 ## 5. 흐름 1 · 자료를 올리고 사람이 확인하기까지
 
@@ -230,11 +228,11 @@ sequenceDiagram
 |---|---|---|---|
 | 업무 서버 | Java 21 · Spring Boot 4 · JdbcClient · Flyway | 권한, 상태 전이, 결정 그래프, 작업 큐, 감사 | 13개 모듈 구현 |
 | 데이터 | PostgreSQL 16 · pgvector | 업무 원장, 그래프, 임베딩 검색 | 원장·그래프 구현. 임베딩 검색은 없고 글자 일치로 찾는다 |
-| AI 처리부 | Python · FastAPI | 작업 워커, `/embed` | 일꾼 구현(표준 라이브러리 + `anthropic`). FastAPI·`/embed`는 미착수 |
-| 모델 연결 | LangChain | 챗 모델, 임베딩, 구조화 출력 어댑터 | 미착수 |
-| 처리 흐름 | LangGraph | PARSE·EXTRACT·GENERATE 단계 제어와 복구 | 미착수 |
-| 평가·추적 | LangSmith | 언어별 평가, 프롬프트·모델 비교, 지연·오류 추적 | 미착수 |
-| 생성 모델 | CLOVA Studio 우선 검토 | 후보 추출, 질의응답, 브리핑·초안·위키 | 지금은 Claude API로 후보 추출과 답변을 만든다. CLOVA 실호출은 검증 전 |
+| AI 처리부 | Python | 작업 워커, `/embed` | 일꾼 구현(server 통신은 표준 라이브러리). `/embed`는 미착수(임베딩 검색과 함께 붙인다) |
+| 모델 연결 | LangChain | 챗 모델, 임베딩, 구조화 출력 어댑터 | `llm.py`가 LangChain 어댑터다(`init_chat_model`, 11/24) |
+| 처리 흐름 | LangGraph | EXTRACT·GENERATE 단계 제어 | 미착수(평가 기준선을 만든 다음) |
+| 평가·추적 | Langfuse(로컬) + `eval/` | 언어별 평가, 프롬프트·모델 비교, 지연·오류 추적 | 추적(호출 로그 줄·Langfuse)은 구현(11/24), 평가셋은 미착수 |
+| 생성 모델 | Claude API(기본), LangChain으로 교체 가능 | 후보 추출, 질의응답, 브리핑·초안·위키 | Claude로 후보 추출과 답변을 만든다. 다른 모델은 평가셋으로 비교한 뒤 쓴다 |
 | 지식 축적 | LLM 기반 누적 위키 | 안건별 페이지 갱신안과 버전 | 미착수 |
 | 클라이언트 | Android · Kotlin · Jetpack Compose | 자료함, 검토함, 질문·답변, 결정 현황·이력, 업무, 위키, 초안 | 자료함·원문 뷰어, 검토함, 대화형 질문, 맥락(확정된 결정·확인할 것·할 일·이력·근거), 설정(내 정보·로그아웃) 구현. 새 판 올리기·카드 고치기·계정 연결·브리핑은 화면에서 뺐다. 이름 검토, 위키, 초안 편집은 미착수. React 웹은 2026-11-21에 지웠다 |
 | 외부 연결 | MCP | 게이트웨이 조회 6개 + 후보 제안 | `McpController` 구현 |
@@ -244,7 +242,7 @@ sequenceDiagram
 
 제안서(부록 A)와 모듈 지도(v2)가 서로 다르게 말하거나, 한쪽에만 적혀 있는 부분이다.
 
-1. **LangGraph 체크포인트를 어디에 두나.** 제안서는 독립 체크포인트 스키마를 두고, 모듈 지도는 Python이 DB에 접속하지 않는다고 한다. 체크포인트 전용 스키마와 계정만 Python에 열어 줄지, 체크포인트 없이 작업 재시도로만 복구할지 정해야 한다.
-2. **모듈 지도에 LangChain 계열이 없다.** 부록 B.9의 Python 설계는 일반 함수 목록이고 그래프 구성이 적혀 있지 않다. 4장의 그래프 세 개는 두 문서를 합쳐 그린 안이므로, AI 담당이 노드와 재시도 한도를 확정해야 한다.
+1. ~~**LangGraph 체크포인트를 어디에 두나.**~~ **결정(11/24): 두지 않는다.** 그래프 상태는 작업 한 번 동안만 살고, 복구는 Java 작업 임대·재시도로 한다. Python은 계속 DB에 접속하지 않는다.
+2. ~~**모듈 지도에 LangChain 계열이 없다.**~~ **결정(11/24):** LangChain은 `llm.py` 안의 모델 어댑터로만, LangGraph는 EXTRACT·GENERATE 그래프로 쓴다(4장). 노드와 재시도 한도는 LangGraph로 옮길 때 코드로 정하고 모듈 지도 부록 B.9에 적는다.
 3. **위키의 서버 쪽 설계가 얇다.** 모듈 이름은 `generation-wiki`지만 공개 함수에는 위키 전용 동작(안건별 페이지, 갱신안 비교, 반영)이 아직 없다. `GenKind`에 위키를 넣는 정도로 끝나는지 확인이 필요하다.
 4. **의존 관계 저장 방식.** 제안서는 `resource_revision`·`dependency` 테이블을, 모듈 지도는 `graph_edge`의 `USES` 줄을 쓴다. 날짜가 더 늦은 모듈 지도가 대체한 것으로 읽었지만 명시된 적은 없다.
