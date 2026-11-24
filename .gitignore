@@ -13,3 +13,8 @@ android/.kotlin/
 .idea/
 *.jks
 *.keystore
+
+# 비밀값
+.env
+*.env
+!*.env.example

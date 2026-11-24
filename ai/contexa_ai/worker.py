@@ -13,7 +13,7 @@ import logging
 import time
 from typing import Any
 
-from . import answer, extract, parse
+from . import answer, extract, parse, tracing
 from .config import Config
 from .llm import LLM, LLMError, LLMRefused, LLMTransient, make_llm
 from .server import Lease, LeaseLost, ServerClient, ServerError, ServerRejected
@@ -37,7 +37,12 @@ class Worker:
         lease = self._server.claim()
         if lease is None:
             return False
-        log.info("작업 %s (%s) 시작", lease.job_id, lease.job_type)
+        log.info("작업 %s (%s, 프로젝트 %s) 시작", lease.job_id, lease.job_type, lease.project_id)
+        with tracing.job(lease.job_id, lease.job_type, lease.project_id):
+            self._handle(lease)
+        return True
+
+    def _handle(self, lease: Lease) -> None:
         try:
             if lease.job_type == "PARSE":
                 self._parse(lease)
@@ -47,7 +52,7 @@ class Worker:
                 self._generate(lease)
             else:
                 self._server.fail(lease, f"이 일꾼은 {lease.job_type} 작업을 할 줄 모른다", retryable=False)
-                return True
+                return
             log.info("작업 %s 완료", lease.job_id)
         except LeaseLost as error:
             # 다른 일꾼이 이미 가져갔거나 취소된 일이다. 결과도 실패도 낼 수 없으니 내려놓는다.
@@ -56,7 +61,6 @@ class Worker:
             self._report(lease, f"모델 호출이 잠시 실패했다: {error}", retryable=True)
         except (LLMRefused, LLMError, ServerRejected) as error:
             self._report(lease, str(error), retryable=False)
-        return True
 
     def _parse(self, lease: Lease) -> None:
         content = self._server.content(lease)
@@ -152,7 +156,8 @@ def main() -> None:
 
     config = Config.from_env()
     worker = Worker(ServerClient(config.server_url, config.worker_token, config.worker_id), make_llm(config.model))
-    log.info("일꾼 %s 시작. 서버 %s, 모델 %s", config.worker_id, config.server_url, config.model)
+    log.info("일꾼 %s 시작. 서버 %s, 모델 %s, Langfuse %s", config.worker_id, config.server_url, config.model,
+             "켜짐" if tracing.langfuse_enabled() else "꺼짐")
     while True:
         try:
             worked = worker.run_once()

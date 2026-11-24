@@ -18,7 +18,7 @@
 ```bash
 cd ai
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .                      # anthropic SDK를 설치한다
+pip install -e .                      # LangChain(langchain, langchain-anthropic)을 설치한다
 export ANTHROPIC_API_KEY=...          # Claude API 키. 파일에 적지 않는다
 python -m contexa_ai.worker           # 계속 돌면서 일을 기다린다
 python -m contexa_ai.worker --once    # 기다리는 일을 한 번 훑고 끝낸다
@@ -28,30 +28,73 @@ python -m contexa_ai.worker --once    # 기다리는 일을 한 번 훑고 끝�
 |---|---|---|
 | `CONTEXA_SERVER_URL` | `http://127.0.0.1:8090` | 서버 주소 |
 | `CONTEXA_WORKER_TOKEN` | `dev-worker-token` | 서버의 `contexa.worker.token`과 같은 값 |
-| `CONTEXA_MODEL` | `claude-opus-5-5` | 후보를 뽑고 답을 쓸 때 쓰는 모델 |
+| `CONTEXA_MODEL` | `anthropic:claude-opus-5-5` | `공급자:모델`. 공급자를 빼면 `anthropic`으로 본다 |
 | `CONTEXA_POLL_SECONDS` | `2` | 일이 없을 때 다시 물어보는 간격 |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` | 없음, 없음, `http://localhost:3000` | 셋 다 있으면 Langfuse로 추적을 보낸다(아래) |
+
+## 호출 기록
+
+모델을 부를 때마다 로그에 JSON 한 줄이 남습니다. 회의 원문, 프롬프트 본문, 모델 답은 적지 않습니다.
+
+```json
+{"event": "llm_call", "job_id": "…", "job_type": "EXTRACT", "project_id": "…", "prompt": "extract.v1",
+ "provider": "anthropic", "model": "claude-opus-5-5", "outcome": "ok", "input_tokens": 5120, "output_tokens": 830, "latency_ms": 41250}
+```
+
+### Langfuse로 추적 보기 (선택)
+
+[Langfuse](https://langfuse.com)를 이 컴퓨터에 띄우면 작업 하나가 trace 하나로 보입니다. 모델 호출은 그 아래 generation으로 붙고,
+토큰·지연·모델·프롬프트 버전, `project:<id>` 꼬리표가 함께 남습니다. 추적은 업무 기록이 아니고, 외부 서비스로 보내지 않습니다.
+Postgres·ClickHouse·Redis·MinIO를 함께 띄우므로 메모리를 몇 GB 씁니다. 필요할 때만 켭니다.
+
+```bash
+cp observability/langfuse.env.example observability/.env      # 저장소 최상위에서. 비밀값을 채운다
+docker compose -f observability/langfuse.compose.yml --env-file observability/.env up -d
+# http://localhost:3000 에 .env의 LANGFUSE_INIT_USER_EMAIL / PASSWORD로 로그인
+
+cd ai && pip install -e '.[observability]'
+set -a && source ../observability/.env && set +a                # LANGFUSE_PUBLIC_KEY·SECRET_KEY를 일꾼에도 넣는다
+python -m contexa_ai.worker                                    # 시작 로그에 "Langfuse 켜짐"이 나온다
+```
+
+Langfuse가 꺼져 있는데 키만 넣어 두면, 작업은 그대로 끝나고 보내지 못했다는 경고만 남습니다.
+LangSmith는 쓰지 않습니다. 무료 플랜이 클라우드 전용이라 회의 내용이 밖으로 나갑니다.
+
+## 프롬프트
+
+지시문은 `contexa_ai/prompts/이름.vN.md`에 있습니다. 내용을 바꿀 때는 파일을 고치지 않고 N을 올린 새 파일을 만듭니다.
+일꾼은 가장 높은 판을 쓰고, 호출 기록에 `extract.v1`처럼 판을 남깁니다. 평가 결과와 비교할 때 어떤 글이었는지 다시 볼 수 있습니다.
 
 ## 테스트
 
-모델과 서버 없이 돕니다. 추가로 설치할 것이 없습니다.
+모델·서버·Langfuse 없이 돕니다. `pip install -e .`로 의존성을 설치한 가상환경에서 돌립니다.
 
 ```bash
 cd ai
-python3 -m unittest discover -s tests -t .
+python -m unittest discover -s tests -t .
 ```
 
 ## 파일
 
 | 파일 | 내용 |
 |---|---|
-| `contexa_ai/worker.py` | 일을 가져와 종류에 맞게 처리하는 루프 |
+| `contexa_ai/worker.py` | 일을 가져와 종류에 맞게 처리하는 루프. 작업마다 추적 범위를 연다 |
 | `contexa_ai/parse.py` | 문서를 발언으로 자르는 규칙 |
-| `contexa_ai/extract.py` | 모델에게 주는 지시와 자료, 모델의 답을 후보로 바꾸는 규칙 |
-| `contexa_ai/answer.py` | 근거 모으기, 답을 쓰게 하는 지시와 자료, 인용 검사 |
-| `contexa_ai/llm.py` | 모델을 부르는 곳. 다른 모델로 바꿀 때는 이 파일만 고친다 |
+| `contexa_ai/extract.py` | 모델에게 주는 자료, 모델의 답을 후보로 바꾸는 규칙 |
+| `contexa_ai/answer.py` | 근거 모으기, 답을 쓰게 하는 자료, 인용 검사 |
+| `contexa_ai/prompts.py`, `contexa_ai/prompts/` | 버전이 붙은 지시문과 그 읽기 |
+| `contexa_ai/llm.py` | 모델을 부르는 유일한 곳. LangChain 어댑터 |
+| `contexa_ai/tracing.py` | 작업 맥락, 호출 기록 한 줄, Langfuse 추적(선택) |
 | `contexa_ai/server.py` | 서버의 뒷문을 부르는 클라이언트 |
 
 ## 다른 모델로 바꾸기
 
-`llm.py`에 `structured(system, user, schema)`를 가진 클래스를 하나 더 만들고 `make_llm`에서 고르면 됩니다.
-나머지 파일은 모델 회사를 모릅니다.
+`CONTEXA_MODEL`만 바꿉니다. 모델 연결은 LangChain의 `init_chat_model`이 맡습니다.
+
+```bash
+export CONTEXA_MODEL=anthropic:claude-sonnet-5-5
+pip install langchain-openai && export CONTEXA_MODEL=openai:<모델 이름>   # 다른 공급자는 그 LangChain 패키지를 설치한다
+```
+
+나머지 파일은 `structured(system, user, schema)`만 알고 모델 회사를 모릅니다. Claude에만 있는 옵션(effort, 거절 시 대체 모델)은
+`llm.py`가 공급자가 anthropic일 때만 붙입니다. 공급자마다 받아들이는 JSON 스키마의 범위가 다르므로, 바꾼 뒤에는 평가셋으로 다시 잽니다.
