@@ -44,7 +44,7 @@ Android 앱  ──HTTP──▶  server  ◀──작업 가져가기/결과 �
 |---|---|---|
 | [`android/`](android/README.md) | 앱 | Kotlin, Jetpack Compose(Material 3), Navigation, Retrofit, kotlinx.serialization |
 | `server/` | 권한, 결정 그래프, 검토, 작업 큐 | Java 21, Spring Boot, PostgreSQL(pgvector), Flyway |
-| [`ai/`](ai/README.md) | 문서를 발언으로 자르고, 후보를 뽑고, 답을 쓴다 | Python 3.11, Anthropic SDK |
+| [`ai/`](ai/README.md) | 문서를 발언으로 자르고, 후보를 뽑고, 답을 쓴다 | Python 3.11, LangChain(기본 모델 Claude), Langfuse(선택) |
 | `docs/` | 기획과 설계 | [구조](docs/contexa_architecture.md), [모듈과 API](docs/contexa_module_map.md), [시나리오](docs/contexa_sinario.md) |
 
 ## 설치와 실행

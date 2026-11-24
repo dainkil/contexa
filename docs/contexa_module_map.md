@@ -579,7 +579,11 @@ parse.py     split_document(kind, content) : [SpanDraft]      모델 없이 규�
                                                                전사문은 줄마다(화자 표기 분리), 그 밖은 문단마다
 extract.py   build_user_prompt(document, spans, state, ontology) : str
              to_candidates(output, spans, state, ontology) : Extraction   모델의 답 → 서버가 받는 후보
-llm.py       LLM.structured(system, user, schema) : dict      모델을 부르는 유일한 곳. 지금은 ClaudeLLM
+llm.py       LLM.structured(system, user, schema) : dict      모델을 부르는 유일한 곳. ChatModelLLM(LangChain init_chat_model)
+                                                               CONTEXA_MODEL=공급자:모델. Claude 전용 옵션은 anthropic일 때만
+prompts.py   load(name, version?) : Prompt                    prompts/이름.vN.md를 읽는다. Prompt는 str + ref("extract.v1")
+tracing.py   job(job_id, job_type, project_id)                작업 맥락(contextvars). 호출마다 JSON 로그 한 줄(원문 없음)
+             run_config(prompt_ref, model) : dict             LangChain config. LANGFUSE_* 키가 있으면 Langfuse 콜백
 server.py    ServerClient            뒷문 클라이언트 (표준 라이브러리만 사용)
 ```
 - 모델에게는 발언에 번호(`s1`), 이미 있는 카드에 이름표(`x1`)를 붙여 보여 주고, 모델은 그것만으로 답한다. 실제 id는 `to_candidates`가 붙인다. 모델이 없는 발언이나 카드를 지어내면 여기서 걸러진다.
@@ -589,7 +593,7 @@ server.py    ServerClient            뒷문 클라이언트 (표준 라이브러
 - 문서 안의 문장은 자료일 뿐 지시가 아니라고 모델에게 알린다(NFR-020). 그와 별개로, AI 인턴이 할 수 있는 일은 서버 쪽에서 "후보 제출"로 제한되어 있다.
 - 답변 쓰기: 모델에게 카드는 `f1`, 줄은 `r1`, 발언은 `s1`로 보여 주고 확인 상태(확인됨/AI 후보)와 "아직 정리되지 않은 것"을 함께 준다. 모델이 본문에 적은 `[s3]`이 보여 준 발언이 아니면 그 답은 버리고 한 번 다시 쓰게 한다. 통과하면 `[1]`, `[2]`로 바꿔 낸다.
 - 답이 참고한 카드·줄·발언은 읽었을 때의 버전과 함께 낸다. 서버가 "그사이 바뀌었다"고 거절하면 근거부터 다시 읽고 한 번 다시 쓴다.
-- 아직 없는 것: 검색용 임베딩. Claude API에는 임베딩이 없어서 검색은 글자 일치로 만들었고, 임베딩은 CLOVA로 바꿀 때 붙인다.
+- 아직 없는 것: 검색용 임베딩. Claude API에는 임베딩이 없어서 검색은 글자 일치로 만들었다. 임베딩은 Hugging Face 다국어 모델(bge-m3)을 로컬에서 돌려 붙인다. LangGraph 그래프도 아직 없다.
 
 ### B.10 Android 앱
 `ContextApi`만 `/context/*`를 호출하고, 화면은 돌려받은 `ContextPacket`을 엮어 그린다. 권한·상태 계산은 server가 한다. React 웹은 2026-11-21에 지우고 이 앱으로 바꿨다(웹 코드는 git 기록에 있다).

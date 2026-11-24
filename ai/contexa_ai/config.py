@@ -22,6 +22,7 @@ class Config:
             # 서버의 contexa.worker.token과 같은 값이어야 한다. 기본값은 내 컴퓨터 개발용이다.
             worker_token=os.environ.get("CONTEXA_WORKER_TOKEN", "dev-worker-token"),
             worker_id=os.environ.get("CONTEXA_WORKER_ID", f"{socket.gethostname()}-{os.getpid()}"),
-            model=os.environ.get("CONTEXA_MODEL", "claude-opus-5-5"),
+            # "공급자:모델". 공급자를 적지 않으면 anthropic으로 본다(llm.parse_model).
+            model=os.environ.get("CONTEXA_MODEL", "anthropic:claude-opus-5-5"),
             poll_seconds=float(os.environ.get("CONTEXA_POLL_SECONDS", "2")),
         )
