@@ -1,0 +1,123 @@
+{
+  "note": "회의마다 뽑아야 하는 카드와 줄. 라벨 규칙은 data/synthetic/README.md",
+  "meetings": [
+    {
+      "document": "m1",
+      "not_decided": [1, 2, 5],
+      "cards": [
+        {"id": "m1.topic", "type": "TOPIC", "text": "국제교류의 밤", "evidence": [1, 2, 3, 4, 5, 6]},
+        {"id": "m1.format", "type": "DECISION_ITEM", "text": "개최 방식", "evidence": [1, 2]},
+        {"id": "m1.date", "type": "DECISION_ITEM", "text": "행사 날짜", "evidence": [3, 4]},
+        {"id": "m1.place", "type": "DECISION_ITEM", "text": "장소", "evidence": [5]},
+        {"id": "m1.online", "type": "DECISION_EVENT", "kinds": ["PROPOSAL"], "text": "온라인 개최 제안", "evidence": [1]},
+        {"id": "m1.inperson_view", "type": "DECISION_EVENT", "kinds": ["DISCUSSION", "PROPOSAL"], "text": "교환학생은 대면 교류를 원한다는 의견", "evidence": [2], "optional": true},
+        {"id": "m1.nov28", "type": "DECISION_EVENT", "kinds": ["DECISION"], "text": "11월 28일 금요일", "evidence": [3, 4]},
+        {"id": "m1.place_later", "type": "DECISION_EVENT", "kinds": ["DEFERRAL", "DISCUSSION", "PROPOSAL"], "text": "장소는 다음 회의에서 정하기로 함", "evidence": [5]},
+        {"id": "m1.seminar", "type": "DECISION_EVENT", "kinds": ["PROPOSAL", "DISCUSSION"], "text": "학생회관 세미나실 후보", "evidence": [5], "optional": true},
+        {"id": "m1.invite_list", "type": "TASK", "text": "아랍어권 학생 초청 명단 정리", "evidence": [6]},
+        {"id": "m1.ahmed", "type": "ENTITY", "kind": "PERSON", "names": ["Ahmed", "Ahmed Hassan", "아흐마드", "아흐마드 하산", "أحمد", "أحمد حسن"], "evidence": [6]},
+        {"id": "m1.minji", "type": "ENTITY", "kind": "PERSON", "names": ["민지", "김민지", "Minji", "Minji Kim"], "evidence": [1, 4], "optional": true, "carry": true},
+        {"id": "m1.sara", "type": "ENTITY", "kind": "PERSON", "names": ["Sara", "Sara Miller", "사라", "사라 밀러"], "evidence": [2], "optional": true, "carry": true},
+        {"id": "m1.jihoon", "type": "ENTITY", "kind": "PERSON", "names": ["지훈", "박지훈", "Jihoon", "Jihoon Park"], "evidence": [3, 5], "optional": true, "carry": true}
+      ],
+      "links": [
+        {"rel": "HAS_ITEM", "from": "m1.topic", "to": "m1.format", "evidence": [1]},
+        {"rel": "HAS_ITEM", "from": "m1.topic", "to": "m1.date", "evidence": [3]},
+        {"rel": "HAS_ITEM", "from": "m1.topic", "to": "m1.place", "evidence": [5]},
+        {"rel": "HAS_EVENT", "from": "m1.format", "to": "m1.online", "evidence": [1]},
+        {"rel": "HAS_EVENT", "from": "m1.format", "to": "m1.inperson_view", "evidence": [2]},
+        {"rel": "HAS_EVENT", "from": "m1.date", "to": "m1.nov28", "evidence": [3, 4]},
+        {"rel": "HAS_EVENT", "from": "m1.place", "to": "m1.place_later", "evidence": [5]},
+        {"rel": "HAS_EVENT", "from": "m1.place", "to": "m1.seminar", "evidence": [5]},
+        {"rel": "ASSIGNED_TO", "from": "m1.invite_list", "to": "m1.ahmed", "evidence": [6]}
+      ]
+    },
+    {
+      "document": "m2",
+      "not_decided": [1, 3, 5],
+      "cards": [
+        {"id": "m2.inperson_prop", "type": "DECISION_EVENT", "kinds": ["PROPOSAL", "DISCUSSION"], "text": "대면으로 바꾸자는 제안", "evidence": [1]},
+        {"id": "m2.venue", "type": "CONDITION", "text": "강당 확보", "evidence": [1]},
+        {"id": "m2.book", "type": "TASK", "text": "본관 강당 예약", "evidence": [2]},
+        {"id": "m2.print", "type": "TASK", "text": "초청장·포스터 인쇄", "evidence": [3]},
+        {"id": "m2.budget", "type": "CONDITION", "text": "인쇄 예산 승인", "evidence": [3]},
+        {"id": "m2.print_hold", "type": "DECISION_EVENT", "kinds": ["DEFERRAL"], "text": "인쇄 보류", "evidence": [3], "optional": true},
+        {"id": "m2.poster", "type": "TASK", "text": "포스터 디자인", "evidence": [4]},
+        {"id": "m2.catering", "type": "DECISION_ITEM", "text": "케이터링 업체", "evidence": [5]},
+        {"id": "m2.quotes", "type": "DECISION_EVENT", "kinds": ["DEFERRAL", "DISCUSSION", "PROPOSAL"], "text": "견적 두 곳을 받아 보고 정하기로 함", "evidence": [5]},
+        {"id": "m2.get_quotes", "type": "TASK", "text": "케이터링 견적 받기", "evidence": [5], "optional": true},
+        {"id": "m2.translate", "type": "TASK", "text": "아랍어 초청장 번역", "evidence": [6, 7]}
+      ],
+      "links": [
+        {"rel": "HAS_EVENT", "from": "m1.format", "to": "m2.inperson_prop", "evidence": [1]},
+        {"rel": "REQUIRES", "from": "m1.format", "to": "m2.venue", "evidence": [1]},
+        {"rel": "ASSIGNED_TO", "from": "m2.book", "to": "m1.jihoon", "evidence": [2]},
+        {"rel": "SATISFIED_BY", "from": "m2.venue", "to": "m2.book", "evidence": [1, 2], "optional": true},
+        {"rel": "REQUIRES", "from": "m2.print", "to": "m2.budget", "evidence": [3]},
+        {"rel": "REQUIRES", "from": "m2.print", "to": "m2.poster", "evidence": [3, 4], "optional": true},
+        {"rel": "ASSIGNED_TO", "from": "m2.poster", "to": "m1.sara", "evidence": [4]},
+        {"rel": "HAS_ITEM", "from": "m1.topic", "to": "m2.catering", "evidence": [5]},
+        {"rel": "HAS_EVENT", "from": "m2.catering", "to": "m2.quotes", "evidence": [5]},
+        {"rel": "ASSIGNED_TO", "from": "m2.translate", "to": "m1.ahmed", "evidence": [6, 7]}
+      ]
+    },
+    {
+      "document": "m3",
+      "not_decided": [5, 6, 7],
+      "cards": [
+        {"id": "m3.inperson", "type": "DECISION_EVENT", "kinds": ["DECISION", "CHANGE"], "text": "대면 개최 확정", "evidence": [1]},
+        {"id": "m3.hall", "type": "DECISION_EVENT", "kinds": ["DECISION"], "text": "본관 강당", "evidence": [2]},
+        {"id": "m3.copy", "type": "TASK", "text": "초청장 문구 정리", "evidence": [3]},
+        {"id": "m3.print_item", "type": "DECISION_ITEM", "text": "인쇄 진행", "evidence": [4], "optional": true},
+        {"id": "m3.print_when", "type": "DECISION_EVENT", "kinds": ["DECISION"], "text": "예산 승인이 나면 바로 인쇄 진행", "evidence": [4], "optional": true},
+        {"id": "m3.order", "type": "TASK", "text": "인쇄 발주", "evidence": [4], "optional": true},
+        {"id": "m3.office", "type": "ENTITY", "kind": "ORGANIZATION", "names": ["학생처"], "evidence": [5], "optional": true},
+        {"id": "m3.delay", "type": "DECISION_EVENT", "kinds": ["PROPOSAL", "DISCUSSION"], "text": "예산이 늦으면 인쇄를 일주일 미루자는 제안", "evidence": [6], "optional": true},
+        {"id": "m3.revisit", "type": "DECISION_EVENT", "kinds": ["DEFERRAL", "DISCUSSION"], "text": "금요일 결과를 보고 다시 논의", "evidence": [7], "optional": true}
+      ],
+      "links": [
+        {"rel": "HAS_EVENT", "from": "m1.format", "to": "m3.inperson", "evidence": [1]},
+        {"rel": "HAS_EVENT", "from": "m1.place", "to": "m3.hall", "evidence": [2]},
+        {"rel": "SUPERSEDES", "from": "m3.inperson", "to": "m1.online", "evidence": [1], "optional": true},
+        {"rel": "SATISFIED_BY", "from": "m2.venue", "to": "m2.book", "evidence": [1], "optional": true},
+        {"rel": "SATISFIED_BY", "from": "m2.venue", "to": "m3:1", "evidence": [1], "optional": true},
+        {"rel": "ASSIGNED_TO", "from": "m3.copy", "to": "m1.minji", "evidence": [3]},
+        {"rel": "REQUIRES", "from": "m2.print", "to": "m2.budget", "evidence": [4], "optional": true},
+        {"rel": "REQUIRES", "from": "m3.print_item", "to": "m2.budget", "evidence": [4]},
+        {"rel": "HAS_EVENT", "from": "m3.print_item", "to": "m3.print_when", "evidence": [4]},
+        {"rel": "REQUIRES", "from": "m3.order", "to": "m2.budget", "evidence": [4]}
+      ]
+    },
+    {
+      "document": "m4",
+      "not_decided": [2, 5],
+      "cards": [
+        {"id": "m4.dec5", "type": "DECISION_EVENT", "kinds": ["CHANGE", "DECISION"], "text": "12월 5일 금요일로 변경", "evidence": [1]},
+        {"id": "m4.arabic_review", "type": "TASK", "text": "초청장 아랍어 문구 검토", "evidence": [3]},
+        {"id": "m4.send", "type": "TASK", "text": "초청장 발송", "evidence": [4]},
+        {"id": "m4.review_done", "type": "CONDITION", "text": "아랍어 문구 검토 완료", "evidence": [4], "optional": true},
+        {"id": "m4.send_item", "type": "DECISION_ITEM", "text": "초청장 발송일", "evidence": [4], "optional": true},
+        {"id": "m4.send_monday", "type": "DECISION_EVENT", "kinds": ["DECISION"], "text": "월요일 발송", "evidence": [4], "optional": true},
+        {"id": "m4.hanbit", "type": "DECISION_EVENT", "kinds": ["PROPOSAL"], "text": "한빛케이터링 제안", "evidence": [5]},
+        {"id": "m4.hanbit_org", "type": "ENTITY", "kind": "ORGANIZATION", "names": ["Hanbit Catering", "한빛케이터링", "Hanbit"], "evidence": [5], "optional": true},
+        {"id": "m4.office", "type": "ENTITY", "kind": "ORGANIZATION", "names": ["학생처"], "evidence": [6], "optional": true},
+        {"id": "m4.order", "type": "TASK", "text": "인쇄 발주", "evidence": [7, 8], "optional": true}
+      ],
+      "links": [
+        {"rel": "HAS_EVENT", "from": "m1.date", "to": "m4.dec5", "evidence": [1]},
+        {"rel": "SUPERSEDES", "from": "m4.dec5", "to": "m1.nov28", "evidence": [1]},
+        {"rel": "ASSIGNED_TO", "from": "m4.arabic_review", "to": "m1.ahmed", "evidence": [3]},
+        {"rel": "ASSIGNED_TO", "from": "m4.send", "to": "m1.ahmed", "evidence": [4], "optional": true},
+        {"rel": "REQUIRES", "from": "m4.send", "to": "m4.arabic_review", "evidence": [4], "optional": true},
+        {"rel": "REQUIRES", "from": "m4.send", "to": "m4.review_done", "evidence": [4]},
+        {"rel": "SATISFIED_BY", "from": "m4.review_done", "to": "m4.arabic_review", "evidence": [4]},
+        {"rel": "HAS_EVENT", "from": "m4.send_item", "to": "m4.send_monday", "evidence": [4]},
+        {"rel": "HAS_EVENT", "from": "m2.catering", "to": "m4.hanbit", "evidence": [5]},
+        {"rel": "SATISFIED_BY", "from": "m2.budget", "to": "m4:6", "evidence": [6]},
+        {"rel": "ASSIGNED_TO", "from": "m2.print", "to": "m1.sara", "evidence": [7, 8]},
+        {"rel": "ASSIGNED_TO", "from": "m4.order", "to": "m1.sara", "evidence": [7, 8]},
+        {"rel": "REQUIRES", "from": "m4.order", "to": "m2.budget", "evidence": [6, 7]}
+      ]
+    }
+  ]
+}

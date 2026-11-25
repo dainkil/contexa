@@ -1,0 +1,11 @@
+{
+  "title": "국제교류의 밤 준비 (합성)",
+  "documents": [
+    {"id": "m1", "title": "1차 회의 (10월 27일)", "kind": "TRANSCRIPT", "file": "documents/m1.txt"},
+    {"id": "m2", "title": "2차 회의 (11월 3일)", "kind": "TRANSCRIPT", "file": "documents/m2.txt"},
+    {"id": "m3", "title": "3차 회의 (11월 10일)", "kind": "TRANSCRIPT", "file": "documents/m3.txt"},
+    {"id": "m4", "title": "4차 회의 (11월 17일)", "kind": "TRANSCRIPT", "file": "documents/m4.txt"},
+    {"id": "roster", "title": "참석자 명단", "kind": "ROSTER", "file": "documents/roster.txt"},
+    {"id": "budget", "title": "예산 신청서", "kind": "DOCUMENT", "file": "documents/budget.txt"}
+  ]
+}

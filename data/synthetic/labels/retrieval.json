@@ -1,0 +1,26 @@
+{
+  "note": "질문마다 찾아야 하는 발언. 발언은 '문서 id:번호'(번호는 그 문서를 자른 순서, 1부터). langs는 질문의 언어",
+  "queries": [
+    {"id": "ko1", "langs": ["ko"], "query": "행사 날짜가 언제로 바뀌었어?", "relevant": ["m1:3", "m4:1"]},
+    {"id": "ko2", "langs": ["ko"], "query": "인쇄는 언제 진행할 수 있어?", "relevant": ["m2:3", "m3:4", "m4:6", "budget:4"]},
+    {"id": "ko3", "langs": ["ko"], "query": "강당 예약은 누가 맡았어?", "relevant": ["m2:2", "m4:2"]},
+    {"id": "ko4", "langs": ["ko"], "query": "초청장 문구 정리 담당", "relevant": ["m3:3"]},
+    {"id": "ko5", "langs": ["ko"], "query": "케이터링 업체는 어디로 해?", "relevant": ["m2:5", "m4:5"]},
+    {"id": "ko6", "langs": ["ko"], "query": "포스터 디자인은 누가 해?", "relevant": ["m2:4"]},
+    {"id": "ko7", "langs": ["ko"], "query": "아랍어 초청장 검토", "relevant": ["m2:6", "m4:3", "m4:4"]},
+    {"id": "ko8", "langs": ["ko"], "query": "왜 대면으로 바꿨어?", "relevant": ["m1:2", "m2:1"]},
+    {"id": "en1", "langs": ["en"], "query": "When is the event now?", "relevant": ["m1:3", "m4:1"]},
+    {"id": "en2", "langs": ["en"], "query": "Who is designing the poster?", "relevant": ["m2:4"]},
+    {"id": "en3", "langs": ["en"], "query": "Was the printing budget approved?", "relevant": ["m2:3", "m3:5", "m4:6", "budget:4"]},
+    {"id": "en4", "langs": ["en"], "query": "catering quote", "relevant": ["m2:5", "m4:5"]},
+    {"id": "en5", "langs": ["en"], "query": "When do the invitations go out?", "relevant": ["m4:4"]},
+    {"id": "en6", "langs": ["en"], "query": "Who places the print order?", "relevant": ["m4:7", "m4:8"]},
+    {"id": "ar1", "langs": ["ar"], "query": "من سيراجع النص العربي للدعوة؟", "relevant": ["m4:3", "m4:4"]},
+    {"id": "ar2", "langs": ["ar"], "query": "متى موعد الحفل؟", "relevant": ["m1:3", "m4:1"]},
+    {"id": "ar3", "langs": ["ar"], "query": "أحمد", "relevant": ["roster:5", "m2:6"]},
+    {"id": "ar4", "langs": ["ar"], "query": "ترجمة الدعوة إلى العربية", "relevant": ["m2:6", "m2:7"]},
+    {"id": "mx1", "langs": ["ko", "en"], "query": "venue booking 담당자", "relevant": ["m2:2", "m4:2"]},
+    {"id": "mx2", "langs": ["ko", "en"], "query": "budget 승인 났어?", "relevant": ["m2:3", "m3:5", "m4:6", "budget:4"]},
+    {"id": "mx3", "langs": ["ko", "en"], "query": "Hanbit Catering 견적", "relevant": ["m2:5", "m4:5"]}
+  ]
+}
