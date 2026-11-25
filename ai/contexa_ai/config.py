@@ -1,10 +1,41 @@
-"""환경 변수로 받는 설정."""
+"""환경 변수로 받는 설정. 레포 루트의 `.env`(git이 무시한다)에 적은 값도 환경 변수로 읽는다."""
 
 from __future__ import annotations
 
 import os
 import socket
 from dataclasses import dataclass
+from pathlib import Path
+
+# 레포 루트의 .env. ai를 레포 안에서 설치했을 때(pip install -e)의 위치다. 없으면 읽지 않는다.
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
+
+def load_env_file(path: Path = ENV_FILE) -> list[str]:
+    """`.env`의 `이름=값` 줄을 환경 변수로 올린다. 이미 있는 환경 변수는 덮어쓰지 않는다.
+
+    모델 API 키(ANTHROPIC_API_KEY 등)를 셸에 내보내지 않고 이 프로젝트에서만 쓰기 위해서다.
+    돌려주는 것은 새로 올린 이름뿐이고 값은 돌려주지도 기록하지도 않는다.
+    """
+    if not path.is_file():
+        return []
+    loaded = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        name, sep, value = line.partition("=")
+        name, value = name.strip(), value.strip()
+        if not sep or not name.isidentifier():
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if name not in os.environ:
+            os.environ[name] = value
+            loaded.append(name)
+    return loaded
 
 
 @dataclass(frozen=True)
@@ -17,6 +48,8 @@ class Config:
 
     @staticmethod
     def from_env() -> "Config":
+        """환경 변수로 설정을 만든다. 그 전에 레포 루트의 .env를 읽어 둔다(모델 SDK도 같은 환경 변수를 읽는다)."""
+        load_env_file()
         return Config(
             server_url=os.environ.get("CONTEXA_SERVER_URL", "http://127.0.0.1:8090").rstrip("/"),
             # 서버의 contexa.worker.token과 같은 값이어야 한다. 기본값은 내 컴퓨터 개발용이다.
