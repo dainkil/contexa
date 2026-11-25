@@ -8,7 +8,7 @@
 - **확인**: 코드·주석·문서·커밋에 그 이유가 적혀 있다.
 - **(추정)**: 적힌 이유가 없어서 내가 코드에서 읽어 낸 의도다.
 - 경로는 저장소 최상위 기준이다. `S/` = `server/src/main/java/com/contexa/server/`, `A/` = `android/app/src/main/java/com/contexa/android/`.
-- `android/`는 이 저장소의 작업 세션에서 Claude와 함께 쓴 코드다. 그 부분의 "왜"는 세션 중에 정한 것이고, 본인이 직접 내린 결정과 구분해서 읽어야 한다.
+- `android/`의 "왜"는 작업 세션 중에 정한 것이라, 본인이 직접 내린 결정과 구분해서 읽어야 한다.
 
 ---
 
@@ -77,9 +77,9 @@
 - 근거: `server/src/main/resources/db/migration/V1__create_graph_edge.sql:13-25`, `V7__create_job.sql:7-24`, `V10__review_page_and_job_subject_indexes.sql`(화면 요구에 맞춰 인덱스를 나중에 추가).
 
 **테스트**
-- 서버: 20파일 4,489줄, `@Test` 198개. 가짜 DB가 아니라 실제 PostgreSQL에 붙고 `@Transactional`로 되돌린다. 모듈마다 테스트 파일이 있다(`ReviewImpactTest` 614줄, `ContextGatewayTest` 555줄, `DecisionTaskTest` 497줄).
-- AI 일꾼: 테스트 함수 35개(`ai/tests/`). 모델은 `LLM` 인터페이스 뒤에 있어서 테스트에서 바꿔 끼운다(`ai/contexa_ai/llm.py:26`).
-- Android: 14파일, `@Test` 81개. 화면에서 뗀 규칙과 ViewModel, MockWebServer로 API 주소·본문을 확인한다.
+- 서버: 30파일 5,959줄, `@Test` 254개(11/25 갱신, 11/21에는 20파일 198개). 가짜 DB가 아니라 실제 PostgreSQL에 붙고 `@Transactional`로 되돌린다. 모듈마다 테스트 파일이 있다(`ReviewImpactTest` 640줄, `ContextGatewayTest` 555줄, `DecisionTaskTest` 497줄).
+- AI 일꾼: 테스트 함수 74개(`ai/tests/`, 11/25 갱신, 11/21에는 35개). 모델은 `LLM` 인터페이스 뒤에 있어서 테스트에서 바꿔 끼운다(`ai/contexa_ai/llm.py:43`).
+- Android: 23파일, `@Test` 147개(11/25 갱신, 11/21에는 14파일 81개). 화면에서 뗀 규칙과 ViewModel, MockWebServer로 API 주소·본문을 확인한다.
 - 근거: `server/src/test/java/com/contexa/server/`, `android/app/src/test/`.
 
 **모듈 경계**
@@ -145,7 +145,7 @@
 ## 3. 빈 곳: "그냥 돌아가니까"에 머문 부분 (우선순위 순)
 
 **1. 자동으로 확인해 주는 것이 없다 (CI·린터·포매터)**
-`.github/`가 없다. 테스트 279개(서버 198 + 앱 81)와 ai 테스트 35개는 사람이 손으로 돌려야 돌아간다. PR 4개 모두 검사 없이 머지됐거나 머지될 것이다. 테스트를 이만큼 써 놓고 자동 실행을 안 붙인 것이 가장 값싼 개선이다: PR마다 `server ./gradlew test`(PostgreSQL 서비스 컨테이너), `ai pytest`, `android :app:testDebugUnitTest`.
+`.github/`가 없다. 테스트 401개(서버 254 + 앱 147, 11/25 기준)와 ai 테스트 74개, 평가 테스트 17개는 사람이 손으로 돌려야 돌아간다. PR 4개 모두 검사 없이 머지됐거나 머지될 것이다. 테스트를 이만큼 써 놓고 자동 실행을 안 붙인 것이 가장 값싼 개선이다: PR마다 `server ./gradlew test`(PostgreSQL 서비스 컨테이너), `ai pytest`, `android :app:testDebugUnitTest`.
 
 **2. 고장 났을 때 볼 것이 없다 (관측)**
 서버 전체에 로그 호출이 한 곳이다(`S/gateway/ContextGateway.java:604`, 그것도 debug). 작업이 왜 실패했는지는 `job.last_error` 열 하나에 기대고, 누가 무엇을 확인했는지의 감사 조회, 처리 시간·실패율 같은 숫자가 없다. "측정" 관점에서는 사실상 비어 있다. 작업 시작·끝·실패, 검토 판단, 권한 거절에 구조화된 로그부터 넣는 것이 순서다.

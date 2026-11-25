@@ -405,7 +405,7 @@ confirmName(Caller c, UUID entityId, String lang, String form, UUID evidenceSpan
 rejectName(Caller c, UUID entityId, String lang, String form) : Changed
 linkAccount(Caller c, UUID entityId, UUID accountId) : Changed
 reviseSpan(Caller c, UUID spanId, long expectedRevision, String text) : Changed
-listImpacts(UUID projectId, NodeRef changed) : List<Impact>
+listImpacts(Caller c, NodeRef changed) : List<Impact>               // 볼 수 있는 카드·발언만. 출발한 카드를 볼 수 없으면 빈 목록
 listRechecks(Caller c, Integer limit, String after) : RecheckPage          // {items: [{review, causes}], next}
 resolveRecheck(Caller c, NodeKey node) : RecheckResolved                   // 검토자만. "바뀐 것 없음"
 ```
@@ -418,7 +418,7 @@ resolveRecheck(Caller c, NodeKey node) : RecheckResolved                   // �
 - **권한**: 확인·정정은 사람이면서 프로젝트의 OWNER·REVIEWER만 한다. AI 작업과 외부 에이전트는 `submitCandidates`만 할 수 있다. 업무 상태는 구성원이면 바꾼다. 업무 수락은 계정이 확인된 인물 카드에 연결되어 있고, 그 인물로 가는 `ASSIGNED_TO` 줄이 확인된 본인만 한다.
 - **확인할 때 지키는 것**: (1) 결정 사건·조건·할 일은 확인된 근거 줄이 하나 이상 있어야 확인 상태일 수 있다. (2) 카드가 확인되지 않았으면 딸린 줄도 확인할 수 없다. (3) 건너편 카드가 없거나 거절·철회됐으면 그 줄은 확인할 수 없다(건너편이 후보인 것은 괜찮다). (4) 대체 줄은 확정·변경 사건끼리만, 철회 줄은 철회 사건에서 확정·변경 사건으로만 확인한다. 하나라도 어기면 아무것도 바꾸지 않는다.
 - **근거**: 줄 후보에는 근거 발언이 하나 이상 있어야 하고, 그 발언은 자료실에 실제로 있으며 내는 사람(AI 작업이면 요청한 사용자)이 읽을 수 있는 문서의 것이어야 한다. 묶음의 근거를 하나도 읽을 수 없는 사람에게는 그 묶음이 보이지 않는다.
-- **처리 후**: 줄마다 `decision-task.onEdgeChanged`를 불러 계산 결과를 맞추고, 바뀐 카드에서 `decision-graph.traverse(IMPACT)`로 영향받는 카드 목록을 구해 돌려준다. 응답의 영향 목록은 그때그때 계산한다.
+- **처리 후**: 줄마다 `decision-task.onEdgeChanged`를 불러 계산 결과를 맞추고, 바뀐 카드에서 `decision-graph.traverse(IMPACT)`로 영향받는 카드 목록을 구해 돌려준다. 응답의 영향 목록은 그때그때 계산하고, 판단한 사람이 볼 수 없는 카드·발언(남의 개인 메모에서만 나온 것 등)은 뺀다(`listImpacts`와 같은 기준, 11/25). 산출물(답변·브리핑) 가운데 남이 요청한 것은 `api`가 `generation-wiki.ownArtifactIds`로 한 번 더 뺀다.
 - **다시 확인**: 확인된 것이 바뀌었을 때만, 거기에 기대는(영향 목록의) 확인·보류된 결정 사건·조건·할 일을 `decision-task`의 `Rechecks`에 남긴다. 남기는 경우: 확인된 카드의 정정·철회, 확인된 줄의 철회, 확정을 대체·철회하는 줄의 확인(대체된 사건에 기대던 카드), 확인된 표기의 거절, 이미 연결된 계정의 변경·해제, 조건 충족 확인, 발언 정정. 후보를 처음 확인하는 일, 표기를 새로 확인하는 일, 처음 계정을 연결하는 일, 할 일의 진행 상태·수락은 새 정보라서 남기지 않는다. 어떤 카드의 묶음을 처리하면(`applyAction`) 그 카드의 "다시 확인"은 `REVIEWED`로 닫히고, 그대로 두려면 `resolveRecheck`로 `KEPT`로 닫는다.
 - `listRechecks`는 이유가 먼저 생긴 카드부터 쪽을 나눠 돌려준다(`limit` 기본 50, 최대 200). 카드는 지금 상태의 검토 묶음으로 싣고, `listReviews`와 같은 기준으로 볼 수 없는 카드는 뺀다. 이유의 `label`(바뀐 카드 제목이나 발언 원문)은 그 사람이 볼 수 있을 때만 싣는다. 그사이 거절·철회된 카드는 빠진다.
 - `idempotencyKey`가 같은 요청이 다시 오면 두 번 처리하지 않는다. `expectedVersion`이 현재 묶음 버전과 다르면 거절한다. 처리 기록은 `review_action`에 남는다.
@@ -459,6 +459,10 @@ identity-access   signUp(String email, String displayName, String password) : UU
                   createProject(UUID userId, String title) : UUID           // 만든 사람이 OWNER
                   setMember(UUID projectId, UUID actor, UUID userId, Role role)   // OWNER만
                   roleOf / projectsOf / userIdByEmail
+                  membersOf(Caller c) : List<Member>                        // 구성원(사람)만. OWNER→REVIEWER→MEMBER, 같은 역할은 들어온 순서.
+                                                                            // 이메일은 OWNER에게, 그리고 내 것만 싣는다
+                  logout(String token)                                      // 그 로그인 토큰을 폐기. 없거나 이미 폐기된 토큰이어도 조용히 끝난다.
+                                                                            // 에이전트 토큰은 여기서 폐기하지 않는다
                   canReview(Caller c) : boolean                             // 사람 + OWNER·REVIEWER
                   isMember(Caller c) : boolean
                   authenticateAgent(String token) : Caller                  // 에이전트 토큰 전용. 토큰의 프로젝트와 범위로
@@ -488,12 +492,16 @@ document-evidence registerDocument(Caller c, DocumentInput in) : SourceVersionRe
 
 job-operation     enqueue(JobType t, UUID projectId, UUID subjectId, String payload, UUID requestedBy,
                           String idempotencyKey) : UUID          // 같은 key면 처음 것을 돌려줌
-                  claim(String workerId) : Optional<JobLease>    // 임대 10분. 지나면 다른 일꾼이 다시 가져감
+                  claim(String workerId) : Optional<JobLease>    // 임대 10분. 지나면 다른 일꾼이 다시 가져감.
+                                                                 // GENERATE를 먼저 고른다(질문이 긴 문서 뒤에 묶이지 않게). 5분 넘게 기다린 일은 같은 차례. not_before가 안 된 일은 건너뜀
+                  renew(UUID jobId, UUID attemptId, String leaseToken) : Instant   // 임대를 10분 더(heartbeat).
+                                                                 // 한 시도가 60분(MAX_RUN)을 넘으면 늘리지 않는다 → 임대가 끝나면 다른 시도가 가져감
                   requireLease(UUID jobId, UUID attemptId, String leaseToken) : Job
                   acceptResult(UUID jobId, UUID attemptId, String leaseToken) : Job   // 임대 검사, 중복 제출 거절
                   fail(UUID jobId, UUID attemptId, String leaseToken, String reason, boolean retryable) : Job
+                                                                 // 다시 시도할 실패는 30초×2^(시도-1) 뒤에야 다시 가져간다(not_before, V14)
                   cancel(UUID projectId, UUID jobId) : Job
-                  retry(UUID projectId, UUID jobId) : Job       // FAILED만. 시도 횟수를 0으로, 처음 올린 자리에서 다시 기다림. 마지막 실패 이유는 남김
+                  retry(UUID projectId, UUID jobId) : Job       // FAILED만. 시도 횟수를 0으로, 처음 올린 자리에서 다시 기다림(대기 간격도 비움). 마지막 실패 이유는 남김
                   get / list
                   bySubjects(UUID projectId, Collection<UUID> subjectIds) : List<Job>   // 문서의 판마다 자르기·뽑기 상태
                   // 작업 내용은 subject_id(문서의 판 등)와 payload(질문 등) 두 칸으로 적는다. 최대 3번 시도
@@ -506,7 +514,9 @@ retrieval         search(UUID projectId, String queryText, Collection<UUID> allo
 generation-wiki   requestGeneration(Caller c, GenKind kind, String question, String lang) : GenerationRequested
                   requestOf(Job job) : GenerationRequest                    // AI 인턴이 받아 가는 주문서
                   publishArtifact(Job job, Draft d) : NodeRef               // pipeline만 호출
-                  // 저장 전 검사: 본문이 있는가, 인용한 발언이 실제로 있고 요청자가 읽을 수 있는가,
+                  // 저장 전 검사: 본문이 있는가, 인용이 하나 이상 있는가(본문의 [n]은 인용 목록 범위 안),
+                  // 예외는 Draft.noEvidence: 근거를 찾지 못했다는 300자 이하 답(인용·참고한 카드·줄 없음)만 그대로 받는다,
+                  // 인용한 발언이 실제로 있고 요청자가 읽을 수 있는가,
                   // 참고한 카드·발언·줄이 그대로인가(gateway.verifyCurrent). 하나라도 아니면 저장하지 않는다.
                   // 저장하면서 참고한 카드마다 USES 줄을 기록한다
                   getArtifact(Caller c, UUID artifactId) : ArtifactView     // 요청한 사람만. 열 때마다 verifyCurrent로 stale 계산
@@ -551,9 +561,11 @@ Python이 보낸 사용자 ID는 믿지 않는다. `Caller`는 항상 서버가 
 
 ```
 AuthController      POST /api/v1/auth/signup, /api/v1/auth/login, GET /api/v1/auth/me
+                    POST /api/v1/auth/logout                           지금 토큰을 폐기. 항상 204
                     POST /api/v1/auth/me/delete                        {password}  계정 삭제 → pipeline.AccountDeletion
                     GET·POST /api/v1/projects
-                    PUT  /api/v1/projects/{id}/members                 {email, role}
+                    GET  /api/v1/projects/{id}/members                 구성원 목록(identity.membersOf)
+                    PUT  /api/v1/projects/{id}/members                 {email, role}  OWNER만
                     POST·DELETE /api/v1/projects/{id}/agent-tokens
 ContextController   GET  /api/v1/projects/{id}/context/trace?type=&id=&direction=BASIS&depth=2
                     GET  /api/v1/projects/{id}/context/state[?topicId=]
@@ -568,11 +580,13 @@ ReviewController    GET  /api/v1/projects/{id}/reviews[?state=&ownerType=&limit=
                     POST /api/v1/projects/{id}/conditions/{conditionId}/satisfied
                     POST /api/v1/projects/{id}/entities/{entityId}/names, /entities/{entityId}/account
                     POST /api/v1/projects/{id}/spans/{spanId}/revisions
-                    GET  /api/v1/projects/{id}/impacts?type=&id=
+                    GET  /api/v1/projects/{id}/impacts?type=&id=       볼 수 있는 카드만, 남이 요청한 답변은 뺀다
                     GET  /api/v1/projects/{id}/rechecks[?limit=&after=]
                     POST /api/v1/projects/{id}/rechecks/{type}/{nodeId}/resolve
-ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 낡은 버전·불가능한 상태 409, 잘못된 값 400,
-                    로그인 시도 초과·하루 AI 작업 수 초과 429
+ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 잘못된 값·읽을 수 없는 요청 형식 400,
+                    409는 error 코드로 나눈다: STALE(낡은 버전) · NOT_POSSIBLE(지금 상태로는 불가) · LEASE_LOST(일꾼의 임대 끝남),
+                    로그인 시도 초과(TOO_MANY_ATTEMPTS, Retry-After)·하루 AI 작업 수 초과(QUOTA_EXCEEDED) 429,
+                    그 밖은 500 INTERNAL. 500에는 안쪽 메시지(SQL·클래스 이름)를 싣지 않고 로그에만 남긴다
 ```
 - 요청자는 `CallerResolver`가 `Authorization: Bearer 토큰`과 주소의 `{projectId}`로 `identity-access.authenticate`를 불러 만든다. 요청 본문이나 주소의 사용자 id는 쓰지 않는다.
 - 외부 AI 에이전트용 출입구(`McpController`): `POST /mcp`. MCP의 HTTP 방식 중 가장 단순한 형태를 직접 구현했다. JSON-RPC 요청 하나에 JSON 응답 하나를 돌려주고, 연결을 유지하지 않는다(`GET /mcp`는 405). 지원하는 메서드는 `initialize`, `ping`, `tools/list`, `tools/call`이고 프로토콜 버전은 `2025-06-18`, `2025-03-26`이다.
@@ -584,7 +598,7 @@ ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 낡은 
 - 뒷문에 글쓰기용 주소 추가: `GET /internal/v1/jobs/{jobId}/request`, `POST /{jobId}/context/search`, `GET /{jobId}/context/trace`.
 - 문서 올리기: `POST /api/v1/projects/{id}/documents`, `/documents/{documentId}/versions` → `pipeline.startIngest`. 작업 상태: `GET /api/v1/projects/{id}/jobs`, `/jobs/{jobId}`(볼 수 있는 작업만). 다시 맡기기: `POST /jobs/{jobId}/retry` → `pipeline.retryJob`(실패한 작업만, 시킨 사람이나 OWNER만, 시도 횟수는 처음부터).
 - 문서 읽기: `GET /api/v1/projects/{id}/documents` → `pipeline.listDocuments`(읽을 수 있는 문서 + 최신 판 처리 상태), `GET /documents/{documentId}[?version=N | ?span=spanId]` → `pipeline.openDocument`(판 목록과 처리 상태, 연 판의 발언 또는 자르기 전 원문). 읽을 수 없는 문서는 404. version과 span을 함께 주면 400.
-- 뒷문(`InternalJobController`, AI 인턴 전용): `GET /internal/v1/jobs/ontology`, `POST /claim`, `GET /{jobId}/content`, `/{jobId}/spans`, `/{jobId}/context/state`, `POST /{jobId}/result`, `/{jobId}/failure`. 모든 요청에 일꾼 토큰(`X-Worker-Token`)이, 일을 가져간 뒤에는 임대증(`X-Attempt-Id`, `X-Lease-Token`)이 필요하다. 사람의 로그인 토큰으로는 들어올 수 없다. 누구의 권한으로 읽을지는 서버가 작업 기록에서 정한다(`identity-access.callerForJob`).
+- 뒷문(`InternalJobController`, AI 인턴 전용): `GET /internal/v1/jobs/ontology`, `POST /claim`, `GET /{jobId}/content`, `/{jobId}/spans`, `/{jobId}/context/state`, `POST /{jobId}/result`, `/{jobId}/failure`, `/{jobId}/heartbeat`(임대 연장 → `{leaseExpiresAt}`, `job.renew`). 모든 요청에 일꾼 토큰(`X-Worker-Token`)이, 일을 가져간 뒤에는 임대증(`X-Attempt-Id`, `X-Lease-Token`)이 필요하다. 사람의 로그인 토큰으로는 들어올 수 없다. 누구의 권한으로 읽을지는 서버가 작업 기록에서 정한다(`identity-access.callerForJob`).
 - 배포 보호(prod 프로필, `docs/contexa_deploy_plan.md`): 가입 허용 목록 `identity.SignupPolicy`, 로그인 시도 제한 `identity.LoginThrottle`, 사용자당 하루 AI 작업 수 `job.AiQuota`(`pipeline.startIngest`·`generation.requestGeneration`이 부른다), 일꾼 토큰 검사 `api.WorkerTokenCheck`.
 - 계정 삭제(`pipeline.AccountDeletion`): 나 혼자인 프로젝트는 각 모듈의 `purgeProject`로 통째로 지운다. 함께 쓰는 프로젝트에서는 `generation.deleteArtifactsOf` → `review.Erasure.forgetSpans`(개인 메모 발언에만 기대던 카드·줄) → `document.deleteDocuments` → `job.deleteJobs` → `identity.leaveProject`(하나뿐인 OWNER면 가장 먼저 들어온 REVIEWER, 없으면 MEMBER에게 넘김) 순서로 지운다. 마지막에 `identity.anonymize`가 토큰을 없애고 이메일·이름·비밀번호를 지운다(행은 남아 "탈퇴한 사용자"로 보인다). 카드·줄·검토 기록을 지우는 함수는 이 흐름에서만 쓴다.
 - 개발용 패키지 `dev`: `POST /dev/seed`가 예시 사용자·프로젝트·전사문을 만들고, 실제 흐름과 같은 길(`submitCandidates` → `applyAction`)로 "국제교류 행사" 장면을 넣은 뒤 로그인 토큰을 돌려준다. `POST /dev/demo`는 시연 계정과 "국제교류의 밤 준비" 프로젝트를 만든다. `POST /dev/eval/corpus {title, documents:[{title, kind, spans:[{speakerLabel, text}]}]}`는 평가용으로, 이미 잘린 문서를 평가 계정의 새 프로젝트에 넣고 발언 id를 돌려준다(작업 큐를 거치지 않아 모델을 부르지 않는다, `eval/retrieval.py`가 쓴다). 모두 `contexa.dev-seed.enabled: true`일 때만 켜진다.
@@ -593,26 +607,33 @@ ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 낡은 
 ### B.9 Python `ai-pipeline` (폴더 `ai/`)
 ```
 worker.py    Worker.run_once()       일을 하나 가져와 종류에 맞게 처리. PARSE, EXTRACT, GENERATE 구현됨
+             _Keepalive              작업 중 120초마다 heartbeat를 보내는 스레드. 임대를 잃으면 다음 모델 호출 전에 멈춘다
+             main()                  SIGTERM·SIGINT를 받으면 하던 작업을 다시 해 볼 실패로 알리고 끝낸다.
+                                     server에 닿지 않으면 쉬는 시간을 두 배씩 늘린다(상한 300초)
 answer.py    gather(server, lease, question) : Context        근거 검색 + 걸린 카드에서 줄 따라가기 + 프로젝트 현황
              build_user_prompt(request, context) : str
-             to_draft(output, context) : dict                  모델의 답 → 서버가 받는 글. 인용 검사
+             to_draft(output, context) : dict                  모델의 답 → 서버가 받는 글. 인용 검사. 인용이 없으면 거절,
+                                                               found:false(근거 없음)면 200자 안의 답을 noEvidence로 낸다.
+                                                               인용이 아닌 [2026]은 (2026)으로 바꾼다(본문의 [n]은 모두 인용)
 parse.py     split_document(kind, content) : [SpanDraft]      모델 없이 규칙으로 자른다
                                                                전사문은 줄마다(화자 표기 분리), 그 밖은 문단마다
 extract.py   build_user_prompt(document, spans, state, ontology) : str
              to_candidates(output, spans, state, ontology) : Extraction   모델의 답 → 서버가 받는 후보
 llm.py       LLM.structured(system, user, schema) : dict      모델을 부르는 유일한 곳. ChatModelLLM(LangChain init_chat_model)
                                                                CONTEXA_MODEL=공급자:모델. Claude 전용 옵션은 anthropic일 때만
+                                                               요청 시간 제한 600초, SDK 재시도 2번(REQUEST_TIMEOUT·MAX_RETRIES)
 prompts.py   load(name, version?) : Prompt                    prompts/이름.vN.md를 읽는다. Prompt는 str + ref("extract.v1")
 tracing.py   job(job_id, job_type, project_id)                작업 맥락(contextvars). 호출마다 JSON 로그 한 줄(원문 없음)
              run_config(prompt_ref, model) : dict             LangChain config. LANGFUSE_* 키가 있으면 Langfuse 콜백
-server.py    ServerClient            뒷문 클라이언트 (표준 라이브러리만 사용)
+server.py    ServerClient            뒷문 클라이언트 (표준 라이브러리만 사용). heartbeat(lease)로 임대 연장
+                                     409는 error 코드로 나눈다: LEASE_LOST → LeaseLost(내려놓음), 그 밖의 409·400 → ServerRejected
 ```
 - 모델에게는 발언에 번호(`s1`), 이미 있는 카드에 이름표(`x1`)를 붙여 보여 주고, 모델은 그것만으로 답한다. 실제 id는 `to_candidates`가 붙인다. 모델이 없는 발언이나 카드를 지어내면 여기서 걸러진다.
 - 카드의 근거(`evidence`)는 `EVIDENCED_BY` 줄로, 새 인물 카드의 근거는 `MENTIONS` 줄로 바꿔 낸다.
 - 규칙에 맞지 않는 카드·줄(근거 없음, 규칙표에 없는 조합, 유형 없음)은 서버에 보내기 전에 버리고 이유를 로그에 남긴다. 규칙표는 서버에서 받아 온다(`/internal/v1/jobs/ontology`). Python 쪽에 따로 적지 않는다.
 - 서버가 후보를 거절하면(400) 이유를 모델에게 알려 주고 한 번 다시 뽑는다. 그래도 안 되면 다시 시도하지 않는 실패로 알린다. 모델의 요청 제한·서버 오류는 다시 시도할 실패로 알린다.
 - 문서 안의 문장은 자료일 뿐 지시가 아니라고 모델에게 알린다(NFR-020). 그와 별개로, AI 인턴이 할 수 있는 일은 서버 쪽에서 "후보 제출"로 제한되어 있다.
-- 답변 쓰기: 모델에게 카드는 `f1`, 줄은 `r1`, 발언은 `s1`로 보여 주고 확인 상태(확인됨/AI 후보)와 "아직 정리되지 않은 것"을 함께 준다. 모델이 본문에 적은 `[s3]`이 보여 준 발언이 아니면 그 답은 버리고 한 번 다시 쓰게 한다. 통과하면 `[1]`, `[2]`로 바꿔 낸다.
+- 답변 쓰기: 모델에게 카드는 `f1`, 줄은 `r1`, 발언은 `s1`로 보여 주고 확인 상태(확인됨/AI 후보)와 "아직 정리되지 않은 것"을 함께 준다. 모델이 본문에 적은 `[s3]`이 보여 준 발언이 아니거나 인용이 하나도 없으면 그 답은 버리고 한 번 다시 쓰게 한다. 모델이 근거를 찾지 못했다고(`found: false`) 하면 인용 없는 짧은 답만 받아 `noEvidence`로 낸다(프롬프트 `answer.v2`, 11/25). 통과하면 `[1]`, `[2]`로 바꿔 낸다.
 - 답이 참고한 카드·줄·발언은 읽었을 때의 버전과 함께 낸다. 서버가 "그사이 바뀌었다"고 거절하면 근거부터 다시 읽고 한 번 다시 쓴다.
 - 아직 없는 것: 검색용 임베딩. Claude API에는 임베딩이 없어서 검색은 글자 일치로 만들었다. 임베딩은 Hugging Face 다국어 모델(bge-m3)을 로컬에서 돌려 붙인다. LangGraph 그래프도 아직 없다.
 
@@ -626,14 +647,18 @@ Models.kt         server 응답 타입. 원본은 Java contract·컨트롤러 re
 ContextApi.kt     state · history · trace · tasks · resolveEntity · nameCard   (ContextController)
                   taskStatus · acceptance · linkAccount · name                 (ReviewController)
 ReviewApi.kt      list · act · rechecks · resolveRecheck                       (ReviewController)
-AuthApi.kt        signUp · login · listProjects · createProject                   (AuthController)
+AuthApi.kt        signUp · login · logout · me · listProjects · createProject · listMembers · setMember   (AuthController)
+ApiError.kt       server의 error 코드·문장 → 사용자에게 보여 줄 문장. 원래 오류는 "자세히"를 눌러야 보인다
 DocumentApi.kt    upload · uploadVersion · list · open · reviseSpan · retryJob (DocumentController)
 GenerationApi.kt  ask(질문·브리핑) · list · get                                 (GenerationController)
 ```
-- 아직 부르지 않는 것: `searchEvidence`, `verifyCurrent`, `satisfyCondition`, 구성원 관리. `linkAccount`는 정의만 있고 2026-11-21 화면 개편 뒤로 부르는 화면이 없다.
-- 화면은 프로젝트 목록 → 프로젝트 안의 아래 탭 네 개(자료함·검토함·질문·맥락)다. 실제 권한 검사는 server가 요청마다 한다.
+- 아직 부르지 않는 것: `searchEvidence`, `verifyCurrent`, `satisfyCondition`, 에이전트 토큰 발급·폐기. `linkAccount`는 정의만 있고 2026-11-21 화면 개편 뒤로 부르는 화면이 없다.
+- 화면은 프로젝트 목록 → 프로젝트 안의 아래 탭 다섯 개(자료함·검토함·질문·맥락·설정)다. 실제 권한 검사는 server가 요청마다 한다. 프로젝트 목록은 화면에 돌아올 때마다 다시 읽고, 실패해도 받아 둔 목록을 지우지 않는다.
 - 자료함: 목록은 처리 중인 문서가 있으면 2초마다 다시 읽는다. 원문 뷰어는 판을 고를 수 있고, 근거 링크로 열면(`span=발언 id`) 그 발언이 든 판을 열고 노란색으로 칠한다. 소유자·검토자에게만 발언마다 정정 버튼이 있고, 내가 본 발언 버전을 함께 보낸다. 자르기·뽑기가 실패로 끝난 판에는 "다시 시도" 버튼이 있다(`retryJob`). 누를 수 있는지는 server가 정하고(시킨 사람이나 OWNER), 아니면 server의 이유를 보여 준다.
-- 검토함: 확인할 것(OPEN)·다시 확인·처리한 것(DONE), 종류 거르기(다시 확인은 받은 뒤에 거른다). 묶음마다 카드·근거 원문·딸린 줄을 보여 주고, 확인·보류·거절·철회와 정정(바뀐 값만 `corrections`로)을 보낸다. 줄은 따로 고르지 않으면 카드 판단을 따른다. `idempotencyKey`는 `묶음 id:버전:요청 내용 해시`라 같은 요청을 두 번 보내도 한 번만 처리되고, 그사이 묶음이 바뀌었으면 server가 409(STALE)로 막는다. 처리한 뒤에는 영향받는 카드 수를 알려 준다. 구성원(MEMBER)은 볼 수만 있다. 인물·기관 묶음은 언어별 표기와 그 인물을 언급한 발언을 보여 주고, 이름 확인 화면으로 가는 버튼이 있다. "다시 확인"에서는 묶음 위에 무엇이 어떻게 바뀌었는지(볼 수 없는 것은 종류만)를 적고, 소유자·검토자에게 "바뀐 것 없음"(`resolveRecheck`) 버튼을 더 보여 준다. 철회 같은 묶음 처리를 하면 server가 그 카드의 "다시 확인"을 닫는다.
+- 검토함: 확인할 것(OPEN)·다시 확인·처리한 것(DONE), 종류 거르기(다시 확인은 받은 뒤에 거른다). 묶음마다 카드·근거 원문·딸린 줄을 보여 주고, 확인·보류·거절·철회와 정정(바뀐 값만 `corrections`로)을 보낸다. 줄은 따로 고르지 않으면 카드 판단을 따른다. 그래서 "확인" 버튼 위에 "따로 고르지 않은 후보 줄도 함께 확인된다"고 알리고, "줄마다 정하기"를 펼치면 줄마다 "카드를 따름"·"이 줄만 확인/보류/거절"을 고른다("고른 줄만 반영"은 카드 판단 없이 보낸다). "고치기"는 카드 값을 칸마다 고쳐 "고쳐서 확인"하거나, 이미 확인된 카드면 "고친 내용만 저장"한다(바뀐 값만 `corrections`). `idempotencyKey`는 `묶음 id:버전:요청 내용 해시`라 같은 요청을 두 번 보내도 한 번만 처리되고, 그사이 묶음이 바뀌었으면 server가 409(STALE)로 막는다. 처리한 뒤에는 영향받는 카드 수를 알려 준다. 구성원(MEMBER)은 볼 수만 있다. 인물·기관 묶음은 언어별 표기와 그 인물을 언급한 발언을 보여 주고, 이름 확인 화면으로 가는 버튼이 있다. "다시 확인"에서는 묶음 위에 무엇이 어떻게 바뀌었는지(볼 수 없는 것은 종류만)를 적고, 소유자·검토자에게 "바뀐 것 없음"(`resolveRecheck`) 버튼을 더 보여 준다. 철회 같은 묶음 처리를 하면 server가 그 카드의 "다시 확인"을 닫는다.
+- 자료함에 있을 때 문서 분석이 끝나면 "검토함에서 결과를 확인하라"는 알림과 "검토함" 버튼을 띄운다.
+- 설정: 내 정보, 로그아웃(`logout`을 3초 안에 부르고, 실패해도 기기의 로그인 정보는 지운다), 구성원 목록. 소유자는 가입한 사람을 이메일로 넣고 역할을 바꾼다. 자기 소유자 역할을 내려놓을 때는 한 번 더 묻는다. 내 역할은 화면에 돌아올 때 다시 읽는다.
+- 오류: server의 `error` 코드와 문장으로 사용자 문장을 고른다(낡은 버전, 하루 작업 수 초과, 로그인 시도 초과는 Retry-After를 분으로). 원래 오류는 "자세히"를 눌러야 보인다.
 - 질문: 묻거나, "인수인계 브리핑" 칩을 켜고 브리핑(`kind=BRIEFING`)을 받는다. 브리핑은 입력 칸을 초점으로 쓰고, 비워 두면 정해 둔 요청(지금의 결정·남은 조건·할 일과 담당자)을 보낸다. 답할 언어는 보내지 않고 server가 질문의 글자로 정한다. 답이 써질 때까지 2초마다 다시 열어 보고(3분 상한), 본문의 `[1]`, `[2]`에 맞춘 인용을 누르면 원문 뷰어의 그 발언으로 간다. 참고한 카드가 그사이 바뀌었으면(`stale`) 경고를 띄운다.
 - 맥락: 현황(`state`)을 안건별 결정 항목과 "남은 것"으로 보여 주고, 항목의 이력(`history`)과 카드의 근거·영향(`trace`)을 연다. 할 일은 상태를 바꾸고(내가 읽은 revision을 함께 보냄), "내 할 일"에서는 담당을 수락·거절한다. server가 `open`에 `NEEDS_RECHECK`를 붙인 할 일에는 맥락과 원문 뷰어 모두 "다시 확인 필요" 표시가 붙는다. "사람"은 확인된 인물·기관 목록이고, 누르면 이름 확인 화면(`nameCard`)이 열린다. 언어별 표기마다 상태와 그 표기가 나온 발언을 보여 주고, 소유자·검토자는 표기를 확인·거절한다(`name`, 확인할 때는 그 발언을 근거로 함께 보낸다). 표기가 나온 발언은 적힌 근거가 먼저이고, 없으면 정규화(NFC·소문자·공백 정리, 아랍어 모음 기호·타트윌 제거, 알리프 통일)한 글자가 그대로 들어 있는 발언이다. 음역이 비슷한 것은 같은 표기로 치지 않는다. 아래에는 이 인물의 표기로 이름 찾기(`resolveEntity`)를 불러 나온 다른 인물을 "이름이 겹치는 인물"로 보여 주고, server가 `AMBIGUOUS_NAME`을 붙인 것은 표시한다. 합치는 버튼은 없다.
 - 코드 구조와 실행 방법은 `android/README.md`.
