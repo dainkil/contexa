@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -15,11 +17,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
+import com.contexa.android.api.NameForm
 import com.contexa.android.api.NodeType
 import com.contexa.android.api.NodeView
+import com.contexa.android.api.RecheckCause
 import com.contexa.android.api.RelType
 import com.contexa.android.api.ReviewItem
 import com.contexa.android.api.ReviewStatus
@@ -30,6 +35,9 @@ import com.contexa.android.ui.components.PrimaryButton
 import com.contexa.android.ui.components.SecondaryButton
 import com.contexa.android.ui.components.Section
 import com.contexa.android.ui.components.SourceQuote
+import com.contexa.android.ui.components.Tag
+import com.contexa.android.ui.context.nameGroups
+import com.contexa.android.ui.context.nameStatusLabel
 
 /** 카드 자체의 값을 "이름 → 값"으로. 기한이 없으면 지어내지 않고 "미정"으로 둔다. */
 fun cardFacts(card: NodeView): List<Pair<String, String>> {
@@ -82,6 +90,9 @@ fun cardLinks(item: ReviewItem): CardLinks {
  *
  * @param canReview 소유자·검토자만 판단할 수 있다. 구성원은 보기만 한다.
  * @param busy      이 묶음의 판단을 보내는 중
+ * @param onOpenPerson 인물·기관 묶음에서 이름 확인 화면을 연다(언어별 표기 확인·거절, 겹치는 인물)
+ * @param recheck   다시 확인 탭이면 다시 봐야 하는 이유. 아니면 null
+ * @param onKeep    다시 봤고 바뀐 것이 없다고 닫는다(검토자만)
  */
 @Composable
 fun ReviewCard(
@@ -91,6 +102,9 @@ fun ReviewCard(
     documentTitles: Map<String, String>,
     onAct: (Verdict) -> Unit,
     onOpenSource: (Source) -> Unit,
+    onOpenPerson: (entityId: String) -> Unit = {},
+    recheck: List<RecheckCause>? = null,
+    onKeep: () -> Unit = {},
 ) {
     val card = item.card
     val links = remember(item) { cardLinks(item) }
@@ -121,14 +135,28 @@ fun ReviewCard(
                 )
             }
 
+            recheck?.let { causes -> RecheckReasons(causes) }
+
             if (facts.isNotEmpty()) {
                 Section("내용") {
                     facts.forEach { (key, value) -> KeyValue(key, value) }
                 }
             }
 
+            if (item.owner.type == NodeType.ENTITY) {
+                // 인물·기관 묶음: 언어별 표기. 표기마다의 확인·거절은 이름 확인 화면에서 한다
+                Section("표기") {
+                    nameGroups(item.names).forEach { group ->
+                        group.forms.forEach { form -> NameRow(group.label, form) }
+                    }
+                    TextButton(onClick = { onOpenPerson(item.owner.id) }) {
+                        Text(if (canReview) "표기 확인하기" else "이름 자세히 보기")
+                    }
+                }
+            }
+
             if (item.sources.isNotEmpty()) {
-                Section("근거") {
+                Section(if (item.owner.type == NodeType.ENTITY) "언급한 발언" else "근거") {
                     item.sources.forEach { source ->
                         SourceQuote(source, documentTitles[source.documentId], onOpen = { onOpenSource(source) })
                     }
@@ -147,8 +175,10 @@ fun ReviewCard(
                 }
             }
 
-            if (verdicts.isNotEmpty()) {
+            val keep = recheck != null && canReview
+            if (verdicts.isNotEmpty() || keep) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (keep) PrimaryButton("바뀐 것 없음", onClick = onKeep, loading = busy, modifier = Modifier.weight(1f))
                     verdicts.forEach { verdict ->
                         val label =
                             if (verdict == Verdict.CONFIRM && card?.status == ReviewStatus.CONFIRMED) "새 연결 확인" else verdictLabel(verdict)
@@ -186,5 +216,54 @@ fun ReviewCard(
             },
             dismissButton = { TextButton(onClick = { confirming = null }) { Text("취소") } },
         )
+    }
+}
+
+/** 다시 봐야 하는 이유. 고치거나 철회하면(묶음 버튼) 저절로 닫히고, 그대로 두려면 "바뀐 것 없음"을 누른다. */
+@Composable
+private fun RecheckReasons(causes: List<RecheckCause>) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "기대는 내용이 바뀌었습니다. 다시 확인해 주세요.",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            causes.forEach { cause ->
+                Text(
+                    recheckCauseLine(cause),
+                    style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
+/** 표기 한 줄: 언어, 표기, 상태. */
+@Composable
+private fun NameRow(language: String, form: NameForm) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            language,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(96.dp),
+        )
+        Text(
+            form.form,
+            style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
+            modifier = Modifier.weight(1f),
+        )
+        Tag(nameStatusLabel(form.status))
     }
 }

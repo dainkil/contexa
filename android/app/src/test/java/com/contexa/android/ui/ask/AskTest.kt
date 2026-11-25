@@ -98,6 +98,30 @@ class AskTest {
     }
 
     @Test
+    fun `브리핑은 비워 둬도 보내고, 비우면 정해 둔 요청을 보낸다`() {
+        assertTrue(canSend("", briefing = true))
+        assertFalse(canSend("", briefing = false))
+        assertFalse(canSend("가".repeat(MAX_QUESTION + 1), briefing = true))
+        assertEquals(AskRequest(kind = GenKind.BRIEFING, question = DEFAULT_BRIEFING), askRequest("  ", briefing = true))
+        assertEquals(AskRequest(kind = GenKind.BRIEFING, question = "예산"), askRequest(" 예산 ", briefing = true))
+        assertEquals(AskRequest(question = "예산"), askRequest(" 예산 ", briefing = false))
+    }
+
+    @Test
+    fun `브리핑을 켜고 보내면 BRIEFING으로 보내고, 보낸 뒤에는 질문으로 돌아간다`() = runTest {
+        val viewModel = AskViewModel(api, "p1")
+
+        viewModel.toggleBriefing()
+        assertTrue(viewModel.state.value.briefing)
+        viewModel.send()
+        advanceUntilIdle()
+
+        assertEquals(listOf(AskRequest(kind = GenKind.BRIEFING, question = DEFAULT_BRIEFING)), api.asked.toList())
+        assertFalse(viewModel.state.value.briefing)
+        assertEquals(GenKind.BRIEFING, viewModel.state.value.turns.last().kind)
+    }
+
+    @Test
     fun `답을 다 쓸 때까지만 다시 열어 본다`() = runTest {
         api.views = listOf(artifact(ArtifactStatus.PENDING), artifact(ArtifactStatus.PENDING), artifact(ArtifactStatus.PUBLISHED))
         val viewModel = AskViewModel(api, "p1")

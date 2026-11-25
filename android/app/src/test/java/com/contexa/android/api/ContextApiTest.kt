@@ -103,4 +103,34 @@ class ContextApiTest {
         assertEquals("""{"email":"jihun@example.com"}""", link.body?.utf8())
         assertEquals("{}", server.takeRequest().body?.utf8())
     }
+
+    @Test
+    fun `이름 검수 - 이름 찾기, 이름 카드, 표기 확인`() = runBlocking {
+        server.enqueue(json(empty))
+        server.enqueue(
+            json(
+                """{"entity":{"ref":{"type":"ENTITY","id":"n1","revision":3},"projectId":"p1","status":"CONFIRMED","label":"아흐마드",
+                  "states":{"kind":"PERSON"},"confirmedBy":"u1","confirmedAt":"2026-11-20T00:00:00Z"},
+                "names":[{"lang":"ar","form":"أحمد","status":"CANDIDATE","evidenceSpanId":"s1"},
+                         {"lang":"en","form":"Ahmed","status":"CONFIRMED","evidenceSpanId":null}],
+                "sources":[{"span":{"type":"SPAN","id":"s1","revision":1},"documentId":"d1","seq":4,"speaker":"민지","text":"أحمد سيرسل الملف"}]}""",
+            ),
+        )
+        server.enqueue(json("""{"node":{"type":"ENTITY","id":"n1","revision":4},"impacts":[]}"""))
+
+        api.resolveEntity("p1", "Ahmed Ali")
+        val card = api.nameCard("p1", "n1")
+        api.name("p1", "n1", NameRequest("ar", "أحمد", confirmed = true, evidenceSpanId = "s1"))
+
+        val resolve = server.takeRequest().url
+        assertEquals("/api/v1/projects/p1/context/entities", resolve.encodedPath)
+        assertEquals("Ahmed Ali", resolve.queryParameter("surface"))
+        assertEquals(null, resolve.queryParameter("lang"))
+        assertEquals("/api/v1/projects/p1/context/entities/n1", server.takeRequest().url.encodedPath)
+        assertEquals("s1", card.names.first().evidenceSpanId)
+        assertEquals("أحمد سيرسل الملف", card.sources.single().text)
+        val name = server.takeRequest()
+        assertEquals("/api/v1/projects/p1/entities/n1/names", name.url.encodedPath)
+        assertEquals("""{"lang":"ar","form":"أحمد","confirmed":true,"evidenceSpanId":"s1"}""", name.body?.utf8())
+    }
 }

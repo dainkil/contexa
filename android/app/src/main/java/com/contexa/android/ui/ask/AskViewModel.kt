@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.contexa.android.api.ArtifactStatus
 import com.contexa.android.api.ArtifactView
-import com.contexa.android.api.AskRequest
+import com.contexa.android.api.GenKind
 import com.contexa.android.api.GenerationApi
 import com.contexa.android.api.userMessage
 import com.contexa.android.ui.documents.POLL_MS
@@ -16,12 +16,17 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 대화의 한 차례: 내 질문과 그 답. view가 null이면 방금 보내서 아직 열어 보지 못했다(쓰는 중으로 그린다). */
-data class ChatTurn(val id: String, val question: String, val view: ArtifactView?)
+/**
+ * 대화의 한 차례: 내 질문과 그 답. view가 null이면 방금 보내서 아직 열어 보지 못했다(쓰는 중으로 그린다).
+ * kind가 BRIEFING이면 질문이 아니라 인수인계 브리핑을 요청한 차례다.
+ */
+data class ChatTurn(val id: String, val question: String, val view: ArtifactView?, val kind: GenKind = GenKind.ANSWER)
 
 data class AskUiState(
     /** 입력 칸에 쓰고 있는 질문. */
     val input: String = "",
+    /** 켜져 있으면 다음에 보내는 글은 질문이 아니라 인수인계 브리핑 요청이다. 입력 칸은 브리핑의 초점(비워도 된다). */
+    val briefing: Boolean = false,
     val sending: Boolean = false,
     val sendError: String? = null,
     val loading: Boolean = true,
@@ -68,7 +73,7 @@ class AskViewModel(private val api: GenerationApi, private val projectId: String
     private suspend fun loadAll(): Boolean = guarded {
         val done = _state.value.turns.mapNotNull { it.view }.filter { it.status == ArtifactStatus.PUBLISHED }.associateBy { it.id }
         val turns = api.list(projectId).take(MAX_TURNS).reversed().map { row ->
-            ChatTurn(row.id, row.question, done[row.id] ?: api.get(projectId, row.id))
+            ChatTurn(row.id, row.question, done[row.id] ?: api.get(projectId, row.id), row.kind)
         }
         _state.update { it.copy(loading = false, turns = turns, loadError = null) }
     }
@@ -94,18 +99,25 @@ class AskViewModel(private val api: GenerationApi, private val projectId: String
         _state.update { it.copy(input = text, sendError = null) }
     }
 
-    /** 질문을 보낸다. 답할 언어는 질문의 글자를 보고 정한다. 보내면 대화 끝에 바로 붙이고 답을 기다린다. */
+    /** 브리핑 요청과 질문 사이를 오간다. */
+    fun toggleBriefing() {
+        _state.update { it.copy(briefing = !it.briefing, sendError = null) }
+    }
+
+    /**
+     * 질문이나 브리핑 요청을 보낸다. 답할 언어는 server가 질문의 글자를 보고 정한다.
+     * 보내면 대화 끝에 바로 붙이고 답을 기다린다. 브리핑은 한 번 보내면 다시 질문으로 돌아간다.
+     */
     fun send() {
         val current = _state.value
-        if (!canAsk(current.input) || current.sending) return
-        val question = current.input.trim()
+        if (!canSend(current.input, current.briefing) || current.sending) return
+        val request = askRequest(current.input, current.briefing)
         _state.update { it.copy(sending = true, sendError = null) }
         viewModelScope.launch {
             try {
-                val requested = api.ask(projectId, AskRequest(question = question))
-                _state.update {
-                    it.copy(sending = false, input = "", turns = it.turns + ChatTurn(requested.artifactId, question, null))
-                }
+                val requested = api.ask(projectId, request)
+                val turn = ChatTurn(requested.artifactId, request.question, null, request.kind ?: GenKind.ANSWER)
+                _state.update { it.copy(sending = false, input = "", briefing = false, turns = it.turns + turn) }
                 reload()
             } catch (e: CancellationException) {
                 throw e

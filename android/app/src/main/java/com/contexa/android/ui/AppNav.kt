@@ -23,6 +23,8 @@ import com.contexa.android.session.SessionState
 import com.contexa.android.ui.auth.AuthViewModel
 import com.contexa.android.ui.context.HistoryScreen
 import com.contexa.android.ui.context.PacketViewModel
+import com.contexa.android.ui.context.PersonScreen
+import com.contexa.android.ui.context.PersonViewModel
 import com.contexa.android.ui.context.TraceScreen
 import com.contexa.android.ui.auth.SignInScreen
 import com.contexa.android.ui.auth.SignUpScreen
@@ -99,6 +101,22 @@ private fun MainNav() {
                 onOpenDocument = { documentId, spanId -> nav.navigate(documentRoute(projectId, documentId, role, spanId)) },
                 onOpenHistory = { itemId -> nav.navigate("p/${Uri.encode(projectId)}/h/${Uri.encode(itemId)}?role=$role") },
                 onOpenTrace = { node -> nav.navigate("p/${Uri.encode(projectId)}/t/${node.type.name}/${Uri.encode(node.id)}?role=$role") },
+                onOpenPerson = { entityId -> nav.navigate(personRoute(projectId, entityId, role)) },
+            )
+        }
+
+        // 인물·기관 한 명의 이름 확인: 언어별 표기, 근거 원문, 이름이 겹치는 다른 인물.
+        composable("p/{projectId}/e/{entityId}?role={role}", arguments = listOf(textArg("role"))) { entry ->
+            val projectId = entry.arguments?.getString("projectId").orEmpty()
+            val entityId = entry.arguments?.getString("entityId").orEmpty()
+            val role = entry.arguments?.getString("role").orEmpty()
+            val viewModel = appViewModel { PersonViewModel(it.contextApi, it.documentApi, projectId, entityId) }
+            PersonScreen(
+                viewModel = viewModel,
+                canReview = canReview(role),
+                onBack = { nav.popBackStack() },
+                onOpenSource = { source -> nav.navigate(documentRoute(projectId, source.documentId, role, source.span.id)) },
+                onOpenPerson = { other -> nav.navigate(personRoute(projectId, other, role)) },
             )
         }
 
@@ -163,6 +181,9 @@ private fun documentRoute(projectId: String, documentId: String, role: String, s
     val span = spanId?.let { "&span=${Uri.encode(it)}" }.orEmpty()
     return "p/${Uri.encode(projectId)}/d/${Uri.encode(documentId)}?role=$role$span"
 }
+
+private fun personRoute(projectId: String, entityId: String, role: String): String =
+    "p/${Uri.encode(projectId)}/e/${Uri.encode(entityId)}?role=$role"
 
 /** 확인·정정은 소유자·검토자만 한다(server도 같은 규칙으로 막는다). */
 private fun canReview(role: String) = role == Role.OWNER.name || role == Role.REVIEWER.name

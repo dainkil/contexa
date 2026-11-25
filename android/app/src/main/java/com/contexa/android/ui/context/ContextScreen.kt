@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.contexa.android.api.Fact
 import com.contexa.android.api.NodeRef
+import com.contexa.android.api.OpenIssueKind
 import com.contexa.android.api.ReviewStatus
 import com.contexa.android.api.TaskStatus
 import com.contexa.android.ui.components.ChoiceChip
@@ -53,8 +54,11 @@ import com.contexa.android.ui.reviews.statusLabel
  * 맥락 탭: 사람이 확인해 확정된 것만 보여 준다(AI 후보를 판단하는 곳은 검토함이다).
  * "확정"은 안건에서 결정으로 이어지는 그림과 알아야 하는 사항, "할 일"은 확인된 할 일이다.
  *
+ * "사람"은 확인된 인물·기관이다. 누르면 언어별 표기를 확인·거절하는 이름 화면을 연다.
+ *
  * @param onOpenHistory 결정 항목의 이력을 연다
  * @param onOpenTrace   할 일의 근거를 따라가 본다
+ * @param onOpenPerson  인물·기관의 이름 화면을 연다
  */
 @Composable
 fun ContextScreen(
@@ -62,6 +66,7 @@ fun ContextScreen(
     onNotice: (String) -> Unit,
     onOpenHistory: (itemId: String) -> Unit,
     onOpenTrace: (NodeRef) -> Unit,
+    onOpenPerson: (entityId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -104,6 +109,7 @@ fun ContextScreen(
         when (state.section) {
             ContextSection.CONFIRMED -> confirmed(state, onOpenHistory)
             ContextSection.TASKS -> tasks(state, viewModel, onOpenTrace)
+            ContextSection.PEOPLE -> people(state, onOpenPerson)
         }
     }
 }
@@ -256,6 +262,49 @@ private fun LazyListScope.tasks(state: ContextUiState, viewModel: ContextViewMod
     }
 }
 
+private fun LazyListScope.people(state: ContextUiState, onOpenPerson: (String) -> Unit) {
+    when {
+        state.people.isNotEmpty() -> items(state.people, key = { "person:${it.entity.node.id}" }) { row ->
+            PersonCard(row, onClick = { onOpenPerson(row.entity.node.id) })
+        }
+
+        state.loading -> item { Loading() }
+
+        state.loadError == null -> item {
+            Text(
+                "아직 확인된 인물·기관이 없습니다.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 인물·기관 한 장: 대표 표기와 확인된 다른 언어 표기. 누르면 이름 화면을 연다. */
+@Composable
+private fun PersonCard(row: PersonRow, onClick: () -> Unit) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    row.entity.label,
+                    style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Content),
+                    modifier = Modifier.weight(1f),
+                )
+                if (row.organization) Tag("기관")
+            }
+            if (row.confirmedNames.isNotEmpty()) {
+                Text(
+                    row.confirmedNames.joinToString(" · "),
+                    style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
 /**
  * 할 일 한 장: 무엇을, 누가, 언제까지. 카드를 누르면 근거를 따라가 본다.
  *
@@ -278,6 +327,7 @@ private fun TaskCard(
                 style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Content),
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (row.needsRecheck) RecheckTag()
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 KeyValue("담당", row.assignees.joinToString(", ").ifEmpty { "미정" })
                 KeyValue("기한", row.dueAt?.takeIf { it.isNotEmpty() }?.let(::formatDay) ?: "미정")
@@ -320,6 +370,16 @@ fun DecisionStateTag(value: String) {
         stateLabel("decisionState", value),
         color = if (decided) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
         container = if (decided) MaterialTheme.colorScheme.primaryContainer else null,
+    )
+}
+
+/** 기대는 카드나 발언이 바뀌어 사람이 다시 봐야 하는 카드. 검토함 "다시 확인"에서 처리한다. */
+@Composable
+fun RecheckTag() {
+    Tag(
+        openLabel(OpenIssueKind.NEEDS_RECHECK),
+        color = MaterialTheme.colorScheme.onErrorContainer,
+        container = MaterialTheme.colorScheme.errorContainer,
     )
 }
 

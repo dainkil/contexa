@@ -13,8 +13,11 @@ import com.contexa.android.api.DocumentKind
 import com.contexa.android.api.DocumentStatus
 import com.contexa.android.api.DocumentView
 import com.contexa.android.api.IngestStarted
+import com.contexa.android.api.JobBrief
 import com.contexa.android.api.JobStatus
 import com.contexa.android.api.NETWORK_ERROR_MESSAGE
+import com.contexa.android.api.NameCard
+import com.contexa.android.api.NameRequest
 import com.contexa.android.api.NewVersionRequest
 import com.contexa.android.api.NodeType
 import com.contexa.android.api.OpenedVersion
@@ -25,15 +28,21 @@ import com.contexa.android.api.TaskStatusRequest
 import com.contexa.android.api.VersionStatus
 import com.contexa.android.api.Visibility
 import java.io.IOException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Before
 import org.junit.Test
 
 private val INFO = DocumentInfo("d1", "3차 회의", DocumentKind.TRANSCRIPT, "ko", Visibility.PROJECT, false, "2026-11-19T10:00:00Z")
@@ -43,6 +52,7 @@ private class FakeDocumentApi(private val lists: List<() -> List<DocumentStatus>
     var listCalls = 0
     val opened = mutableListOf<Pair<Int?, String?>>()
     var views: List<DocumentView> = emptyList()
+    val retried = mutableListOf<String>()
 
     override suspend fun list(projectId: String): List<DocumentStatus> =
         lists[minOf(listCalls++, lists.lastIndex)]()
@@ -57,6 +67,11 @@ private class FakeDocumentApi(private val lists: List<() -> List<DocumentStatus>
         error("쓰지 않는다")
     override suspend fun reviseSpan(projectId: String, spanId: String, request: ReviseSpanRequest): Changed =
         error("쓰지 않는다")
+
+    override suspend fun retryJob(projectId: String, jobId: String): JobBrief {
+        retried += jobId
+        return JobBrief(jobId, JobStatus.QUEUED, 0, "모델 응답 시간 초과", "2026-11-19T10:00:00Z")
+    }
 }
 
 /** 할 일 읽기만 받는 가짜. 뷰어는 문서 처리가 끝난 뒤에 할 일을 읽는다. */
@@ -75,6 +90,9 @@ private class FakeTasksApi : ContextApi {
     override suspend fun taskStatus(projectId: String, taskId: String, request: TaskStatusRequest): Changed = error("쓰지 않는다")
     override suspend fun acceptance(projectId: String, taskId: String, request: AcceptanceRequest): Changed = error("쓰지 않는다")
     override suspend fun linkAccount(projectId: String, entityId: String, request: AccountRequest): Changed = error("쓰지 않는다")
+    override suspend fun resolveEntity(projectId: String, surface: String, lang: String?): ContextPacket = error("쓰지 않는다")
+    override suspend fun nameCard(projectId: String, entityId: String): NameCard = error("쓰지 않는다")
+    override suspend fun name(projectId: String, entityId: String, request: NameRequest): Changed = error("쓰지 않는다")
 }
 
 private fun row(latest: VersionStatus?) = DocumentStatus(INFO, versionCount = 1, latest = latest)
@@ -94,6 +112,17 @@ class DocumentsViewModelTest {
 
     private val running = version(job(JobStatus.RUNNING))
     private val done = version(job(JobStatus.SUCCEEDED), job(JobStatus.SUCCEEDED), 3)
+
+    // 다시 맡기기는 viewModelScope(Main)에서 보낸다. runTest는 Main의 시계를 함께 쓴다.
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(StandardTestDispatcher())
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
 
     @Test
     fun `처리 중인 문서가 있는 동안만 다시 불러온다`() = runTest {
@@ -142,5 +171,29 @@ class DocumentsViewModelTest {
         assertEquals(2 to null, api.opened.last())
         assertNull(viewModel.state.value.highlightId)
         assertEquals(3, api.opened.size)
+    }
+
+    @Test
+    fun `뷰어 - 실패한 작업을 다시 맡기면 다시 불러오며 처리가 끝날 때까지 지켜본다`() = runTest {
+        val failed = version(job(JobStatus.SUCCEEDED), job(JobStatus.FAILED, "모델 응답 시간 초과"), 3)
+        val api = FakeDocumentApi().apply { views = listOf(view(failed), view(running), view(done)) }
+        val viewModel = DocumentViewerViewModel(api, FakeTasksApi(), "p1", "d1", spanId = null)
+
+        backgroundScope.launch { viewModel.watch() }
+        settle()
+        assertEquals(1, api.opened.size)
+
+        viewModel.retry()
+        settle()
+
+        assertEquals(listOf(failed.extract!!.id), api.retried.toList())
+        assertEquals(3, api.opened.size)
+        assertEquals(done, viewModel.state.value.openedVersion)
+        assertNull(viewModel.state.value.retryError)
+
+        // 실패한 작업이 없으면 아무것도 보내지 않는다.
+        viewModel.retry()
+        settle()
+        assertEquals(1, api.retried.size)
     }
 }

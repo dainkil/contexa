@@ -45,6 +45,7 @@ fun openLabel(kind: OpenIssueKind): String = when (kind) {
     OpenIssueKind.CONTESTED_DECISION -> "확정이 둘 겹침"
     OpenIssueKind.UNMET_CONDITION -> "조건 충족 전"
     OpenIssueKind.AMBIGUOUS_NAME -> "누구인지 불분명한 이름"
+    OpenIssueKind.NEEDS_RECHECK -> "다시 확인 필요"
 }
 
 /** "확인" 칸의 한 줄. kind = 무엇이 문제인가, text = 걸린 것의 내용(연결에 걸렸거나 읽을 수 없으면 null), count = 같은 줄이 몇 건인가. */
@@ -68,8 +69,11 @@ fun notices(packet: ContextPacket): List<Notice> {
     return (issues + unsettled).groupingBy { it }.eachCount().map { (row, count) -> Notice(row.first, row.second, count) }
 }
 
-/** 할 일 한 줄. assignees = 담당으로 이어진 인물·기관 이름. */
-data class TaskRow(val task: Fact, val assignees: List<String>) {
+/**
+ * 할 일 한 줄. assignees = 담당으로 이어진 인물·기관 이름.
+ * needsRecheck = 기대는 카드나 발언이 바뀌어 다시 봐야 한다(server가 open에 NEEDS_RECHECK로 알린다).
+ */
+data class TaskRow(val task: Fact, val assignees: List<String>, val needsRecheck: Boolean = false) {
     val workStatus: TaskStatus? get() = task.states["workStatus"]?.let { name -> TaskStatus.entries.find { it.name == name } }
     val acceptance: String? get() = task.states["acceptance"]
     val dueAt: String? get() = task.states["dueAt"]
@@ -83,8 +87,9 @@ data class TaskRow(val task: Fact, val assignees: List<String>) {
 fun taskRows(packet: ContextPacket): List<TaskRow> {
     val byId = packet.facts.associateBy { it.node.id }
     val assigned = packet.relations.filter { it.rel == RelType.ASSIGNED_TO }.groupBy({ it.src.id }, { it.dst.id })
+    val recheck = packet.open.filter { it.kind == OpenIssueKind.NEEDS_RECHECK }.mapNotNull { it.node?.id }.toSet()
     return packet.facts.filter { it.node.type == NodeType.TASK }.map { task ->
-        TaskRow(task, assigned[task.node.id].orEmpty().mapNotNull { byId[it]?.label }.distinct())
+        TaskRow(task, assigned[task.node.id].orEmpty().mapNotNull { byId[it]?.label }.distinct(), task.node.id in recheck)
     }
 }
 

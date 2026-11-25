@@ -39,8 +39,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.contexa.android.api.ArtifactStatus
+import com.contexa.android.api.GenKind
 import com.contexa.android.api.Source
+import com.contexa.android.ui.components.ChoiceChip
 import com.contexa.android.ui.components.ScreenTitle
+import com.contexa.android.ui.components.Tag
 
 /**
  * 질문 탭: 대화처럼 묻는다. 내 질문은 오른쪽, AI의 답은 왼쪽에 쌓이고, 아래 입력 칸으로 이어서 묻는다.
@@ -76,7 +79,7 @@ fun AskScreen(viewModel: AskViewModel, onOpenSource: (Source) -> Unit, modifier:
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     state.turns.forEach { turn ->
-                        item(key = "q:${turn.id}") { QuestionBubble(turn.question) }
+                        item(key = "q:${turn.id}") { QuestionBubble(turn.question, turn.kind) }
                         item(key = "a:${turn.id}") { AnswerBubble(turn, state.gaveUp, onOpenSource) }
                     }
                 }
@@ -112,9 +115,11 @@ fun AskScreen(viewModel: AskViewModel, onOpenSource: (Source) -> Unit, modifier:
 
         InputBar(
             text = state.input,
+            briefing = state.briefing,
             error = questionError(state.input) ?: state.sendError,
             sending = state.sending,
             onChange = viewModel::editInput,
+            onToggleBriefing = viewModel::toggleBriefing,
             onSend = viewModel::send,
         )
     }
@@ -123,9 +128,11 @@ fun AskScreen(viewModel: AskViewModel, onOpenSource: (Source) -> Unit, modifier:
 private val Mine = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 4.dp)
 private val Theirs = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 4.dp, bottomEnd = 20.dp)
 
+/** 내 질문. 브리핑을 요청한 차례면 위에 꼬리표를 단다. */
 @Composable
-private fun QuestionBubble(question: String) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+private fun QuestionBubble(question: String, kind: GenKind) {
+    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (kind == GenKind.BRIEFING) Tag(BRIEFING_LABEL)
         Surface(color = MaterialTheme.colorScheme.primary, shape = Mine, modifier = Modifier.widthIn(max = 300.dp)) {
             Text(
                 question,
@@ -136,6 +143,8 @@ private fun QuestionBubble(question: String) {
         }
     }
 }
+
+private const val BRIEFING_LABEL = "인수인계 브리핑"
 
 /** 답 하나. 쓰는 중이면 그렇다고, 실패했으면 이유를, 다 썼으면 본문과 인용한 발언을 보여 준다. */
 @Composable
@@ -197,10 +206,25 @@ private fun AnswerBubble(turn: ChatTurn, gaveUp: Boolean, onOpenSource: (Source)
     }
 }
 
+/** 아래 입력 칸. 브리핑 칩을 켜면 입력 칸은 브리핑의 초점이 되고, 비워 둬도 보낼 수 있다. */
 @Composable
-private fun InputBar(text: String, error: String?, sending: Boolean, onChange: (String) -> Unit, onSend: () -> Unit) {
+private fun InputBar(
+    text: String,
+    briefing: Boolean,
+    error: String?,
+    sending: Boolean,
+    onChange: (String) -> Unit,
+    onToggleBriefing: () -> Unit,
+    onSend: () -> Unit,
+) {
     Column {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        ChoiceChip(
+            label = BRIEFING_LABEL,
+            selected = briefing,
+            onClick = onToggleBriefing,
+            modifier = Modifier.padding(start = 12.dp, top = 8.dp),
+        )
         error?.let {
             Text(
                 it,
@@ -217,7 +241,7 @@ private fun InputBar(text: String, error: String?, sending: Boolean, onChange: (
             OutlinedTextField(
                 value = text,
                 onValueChange = onChange,
-                placeholder = { Text("질문을 입력하세요") },
+                placeholder = { Text(if (briefing) "무엇을 중심으로 정리할까요? (비워도 됩니다)" else "질문을 입력하세요") },
                 textStyle = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
                 shape = RoundedCornerShape(24.dp),
                 maxLines = 4,
@@ -225,7 +249,7 @@ private fun InputBar(text: String, error: String?, sending: Boolean, onChange: (
             )
             FilledIconButton(
                 onClick = onSend,
-                enabled = canAsk(text) && !sending,
+                enabled = canSend(text, briefing) && !sending,
                 shape = CircleShape,
                 modifier = Modifier.size(52.dp),
             ) {

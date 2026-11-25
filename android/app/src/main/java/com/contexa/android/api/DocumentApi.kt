@@ -7,7 +7,7 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
 
-/** 문서 올리기, 원문 읽기, 발언 정정. 기준: server api/DocumentController.java */
+/** 문서 올리기, 원문 읽기, 발언 정정, 실패한 작업 다시 맡기기. 기준: server api/DocumentController.java */
 interface DocumentApi {
 
     /** 문서를 올린다. 올리면 "발언으로 자르기" 작업이 바로 맡겨진다. */
@@ -45,6 +45,14 @@ interface DocumentApi {
         @Path("spanId") spanId: String,
         @Body request: ReviseSpanRequest,
     ): Changed
+
+    /**
+     * 실패로 끝난 작업(자르기·뽑기)을 다시 맡긴다. 시도 횟수는 처음부터 다시 센다.
+     * 그 작업을 시킨 사람이나 OWNER만 할 수 있고(아니면 403), 실패한 작업이 아니면 409다.
+     * server는 작업 전체(Job)를 돌려주지만 화면에 필요한 칸만 받는다.
+     */
+    @POST("projects/{projectId}/jobs/{jobId}/retry")
+    suspend fun retryJob(@Path("projectId") projectId: String, @Path("jobId") jobId: String): JobBrief
 }
 
 @Serializable

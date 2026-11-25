@@ -24,7 +24,7 @@ enum class ReviewStatus { CANDIDATE, CONFIRMED, HELD, REJECTED, RETRACTED }
 /** BASIS = 근거 쪽(앞으로), IMPACT = 영향 쪽(거꾸로). */
 enum class Direction { BASIS, IMPACT }
 
-enum class OpenIssueKind { HELD_NODE, HELD_EDGE, CONTESTED_DECISION, UNMET_CONDITION, AMBIGUOUS_NAME }
+enum class OpenIssueKind { HELD_NODE, HELD_EDGE, CONTESTED_DECISION, UNMET_CONDITION, AMBIGUOUS_NAME, NEEDS_RECHECK }
 
 enum class ScopeView { TRACE, CURRENT_STATE, DECISION_HISTORY, TASKS, RESOLVE_ENTITY, SEARCH_EVIDENCE }
 
@@ -124,11 +124,16 @@ data class ProjectSummary(val id: String, val title: String, val role: Role)
 
 // ── entity ─────────────────────────────────────────────────────
 
+/** 한 언어로 적은 이름 표기 하나(entity/NameForm.java). status는 CANDIDATE(제안 표기), CONFIRMED, REJECTED 중 하나. */
 @Serializable
 data class NameForm(val lang: String, val form: String, val status: String, val evidenceSpanId: String? = null)
 
+/**
+ * 이름 카드(entity/NameCard.java): 인물·기관 한 명과 언어별 표기 전부.
+ * sources = 이 인물을 언급한 발언과 표기의 근거 발언. 읽을 수 있는 문서의 것만 온다.
+ */
 @Serializable
-data class NameCard(val entity: NodeView, val names: List<NameForm> = emptyList())
+data class NameCard(val entity: NodeView, val names: List<NameForm> = emptyList(), val sources: List<Source> = emptyList())
 
 // ── review ─────────────────────────────────────────────────────
 
@@ -152,8 +157,10 @@ data class ReviewItem(
     val edges: List<Edge> = emptyList(),
     /** 줄 건너편 카드. 근거를 하나도 읽을 수 없는 카드는 빠진다(줄은 edges에 남는다). */
     val related: List<NodeView> = emptyList(),
-    /** 줄이 가리키거나 근거로 대는 발언의 원문. 읽을 수 있는 문서의 것만. */
+    /** 줄이 가리키거나 근거로 대는 발언의 원문. 인물·기관 묶음이면 그 인물을 언급한 발언도. 읽을 수 있는 문서의 것만. */
     val sources: List<Source> = emptyList(),
+    /** 인물·기관 묶음일 때 언어별 표기 전부(제안·확인·거절). */
+    val names: List<NameForm> = emptyList(),
 )
 
 /** 검토함 한 쪽. next를 after로 보내면 다음 쪽이 온다. 더 없으면 null. */
@@ -168,6 +175,34 @@ data class ReviewResult(val item: ReviewItem, val impacts: List<Impact> = emptyL
 
 @Serializable
 data class Changed(val node: NodeRef, val impacts: List<Impact> = emptyList())
+
+/** 카드를 다시 확인해야 하게 만든 일. server decision/RecheckReason.java */
+enum class RecheckReason { REVIEW, NAME, ACCOUNT, CONDITION, SPAN_REVISION }
+
+/**
+ * 다시 봐야 하는 이유 하나. server review/RecheckCauseView.java
+ *
+ * @param label 바뀐 카드의 제목이나 발언 원문. 내가 볼 수 없는 것이면 null
+ */
+@Serializable
+data class RecheckCause(
+    val changed: NodeKey,
+    val label: String? = null,
+    val reason: RecheckReason,
+    val distance: Int,
+    val actorId: String,
+    val at: String,
+)
+
+/** 검토함 "다시 확인"의 한 장: 다시 볼 카드의 지금 묶음과 이유(먼저 생긴 것부터). */
+@Serializable
+data class RecheckItem(val review: ReviewItem, val causes: List<RecheckCause> = emptyList())
+
+@Serializable
+data class RecheckPage(val items: List<RecheckItem> = emptyList(), val next: String? = null)
+
+@Serializable
+data class RecheckResolved(val node: NodeKey, val resolved: Int)
 
 // ── document · job · pipeline ─────────────────────────────────
 

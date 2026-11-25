@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -17,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import com.contexa.android.api.VersionStatus
+import com.contexa.android.ui.components.PrimaryButton
 import kotlinx.coroutines.delay
 
 @Composable
@@ -41,10 +43,18 @@ private fun rememberNow(enabled: Boolean, intervalMs: Long = 5000): Long {
 
 /**
  * 원문 뷰어 위쪽의 처리 상태. 처리가 끝난 문서에는 아무것도 그리지 않는다.
- * 실패하면 시도 횟수와 오류 문장을, 오래 기다리면 일꾼을 확인하라는 안내를 보여 준다.
+ * 실패하면 시도 횟수와 오류 문장, 다시 시도 버튼을, 오래 기다리면 일꾼을 확인하라는 안내를 보여 준다.
+ *
+ * @param onRetry 실패한 작업을 다시 맡긴다. 누를 수 있는지는 server가 정한다(시킨 사람이나 OWNER). 아니면 retryError에 이유가 온다
  */
 @Composable
-fun ProcessingNotice(version: VersionStatus?, modifier: Modifier = Modifier) {
+fun ProcessingNotice(
+    version: VersionStatus?,
+    modifier: Modifier = Modifier,
+    retrying: Boolean = false,
+    retryError: String? = null,
+    onRetry: () -> Unit = {},
+) {
     val progress = progressOf(version)
     if (progress.stage == Stage.READY) return
     val now = rememberNow(progress.active)
@@ -77,6 +87,12 @@ fun ProcessingNotice(version: VersionStatus?, modifier: Modifier = Modifier) {
                     color = MaterialTheme.colorScheme.error,
                     maxLines = 4,
                 )
+            }
+            if (retryableJob(progress) != null) {
+                PrimaryButton("다시 시도", onClick = onRetry, loading = retrying, modifier = Modifier.padding(top = 4.dp))
+            }
+            retryError?.let {
+                Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
             }
         }
     }

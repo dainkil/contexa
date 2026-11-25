@@ -8,6 +8,8 @@ import com.contexa.android.api.ContextPacket
 import com.contexa.android.api.Direction
 import com.contexa.android.api.Edge
 import com.contexa.android.api.EvidenceRef
+import com.contexa.android.api.NameCard
+import com.contexa.android.api.NameRequest
 import com.contexa.android.api.Fact
 import com.contexa.android.api.NodeRef
 import com.contexa.android.api.NodeType
@@ -117,6 +119,9 @@ private class FakeContextApi : ContextApi {
 
     override suspend fun linkAccount(projectId: String, entityId: String, request: AccountRequest): Changed =
         error("쓰지 않는다")
+    override suspend fun resolveEntity(projectId: String, surface: String, lang: String?): ContextPacket = error("쓰지 않는다")
+    override suspend fun nameCard(projectId: String, entityId: String): NameCard = error("쓰지 않는다")
+    override suspend fun name(projectId: String, entityId: String, request: NameRequest): Changed = error("쓰지 않는다")
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -217,6 +222,14 @@ class ContextTest {
         assertFalse(rows[1].canChange)
         assertFalse(TaskStatus.PLANNED in nextStatuses(TaskStatus.PLANNED))
         assertEquals(TaskStatus.entries.size - 1, nextStatuses(TaskStatus.PLANNED).size)
+    }
+
+    @Test
+    fun `server가 다시 확인하라고 알린 할 일에는 표시를 붙이고, 확인 칸에도 적는다`() {
+        val flagged = packet(listOf(task, candidateTask), open = listOf(OpenIssue(OpenIssueKind.NEEDS_RECHECK, task.node)))
+
+        assertEquals(listOf(true, false), taskRows(flagged).map { it.needsRecheck })
+        assertEquals(listOf(Notice("다시 확인 필요", "초청장 문구 정리")), notices(flagged).filter { it.kind == "다시 확인 필요" })
     }
 
     @Test

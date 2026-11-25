@@ -51,6 +51,7 @@ import com.contexa.android.api.ReviewStatus
 import com.contexa.android.api.Span
 import com.contexa.android.ui.components.BackButton
 import com.contexa.android.ui.components.PrimaryButton
+import com.contexa.android.ui.context.RecheckTag
 import com.contexa.android.ui.context.TaskRow
 import com.contexa.android.ui.theme.evidence
 import kotlinx.coroutines.launch
@@ -195,7 +196,12 @@ private fun ViewerHeader(state: ViewerUiState, viewModel: DocumentViewerViewMode
     val latestNo = state.latestNo ?: view.opened.versionNo
 
     Column(modifier = Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ProcessingNotice(state.openedVersion)
+        ProcessingNotice(
+            state.openedVersion,
+            retrying = state.retrying,
+            retryError = state.retryError,
+            onRetry = viewModel::retry,
+        )
 
         if (view.opened.versionNo != latestNo) {
             // 근거 링크로 예전 내용을 열었을 때만 나온다.
@@ -258,6 +264,7 @@ private fun TaskLine(row: TaskRow) {
             if (row.task.status != ReviewStatus.CONFIRMED) {
                 Text("검토함에서 확인 전", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (row.needsRecheck) RecheckTag()
         }
         val assignees = row.assignees.joinToString(", ")
         Text(

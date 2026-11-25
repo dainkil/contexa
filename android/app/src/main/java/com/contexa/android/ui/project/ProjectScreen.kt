@@ -67,6 +67,7 @@ enum class ProjectTab(val label: String, val icon: ImageVector) {
  * @param onOpenDocument 원문 뷰어를 연다. spanId를 주면 그 발언 자리로 간다.
  * @param onOpenHistory  결정 항목의 이력을 연다.
  * @param onOpenTrace    카드의 근거·영향을 따라가 본다.
+ * @param onOpenPerson   인물·기관의 이름 화면을 연다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +80,7 @@ fun ProjectScreen(
     onOpenDocument: (documentId: String, spanId: String?) -> Unit,
     onOpenHistory: (decisionItemId: String) -> Unit,
     onOpenTrace: (NodeRef) -> Unit,
+    onOpenPerson: (entityId: String) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(ProjectTab.DOCUMENTS) }
     val snackbar = remember { SnackbarHostState() }
@@ -137,6 +139,7 @@ fun ProjectScreen(
                 canReview = canReview,
                 onNotice = { message -> scope.launch { snackbar.showSnackbar(message) } },
                 onOpenSource = { source -> onOpenDocument(source.documentId, source.span.id) },
+                onOpenPerson = onOpenPerson,
                 modifier = content,
             )
 
@@ -151,6 +154,7 @@ fun ProjectScreen(
                 onNotice = { message -> scope.launch { snackbar.showSnackbar(message) } },
                 onOpenHistory = onOpenHistory,
                 onOpenTrace = onOpenTrace,
+                onOpenPerson = onOpenPerson,
                 modifier = content,
             )
 

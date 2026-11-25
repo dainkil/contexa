@@ -28,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.contexa.android.api.NodeType
-import com.contexa.android.api.ReviewState
 import com.contexa.android.api.Source
 import com.contexa.android.ui.components.ChoiceChip
 import com.contexa.android.ui.components.ScreenTitle
@@ -40,6 +39,7 @@ import com.contexa.android.ui.components.SecondaryButton
  * @param canReview     소유자·검토자만 판단한다
  * @param onNotice      처리 결과 알림을 띄운다
  * @param onOpenSource  근거 발언을 원문 뷰어에서 연다
+ * @param onOpenPerson  인물·기관 묶음의 이름 확인 화면을 연다
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -48,6 +48,7 @@ fun ReviewsScreen(
     canReview: Boolean,
     onNotice: (String) -> Unit,
     onOpenSource: (Source) -> Unit,
+    onOpenPerson: (entityId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -74,8 +75,9 @@ fun ReviewsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     itemVerticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ChoiceChip("확인할 것", selected = state.tab == ReviewState.OPEN, onClick = { viewModel.showTab(ReviewState.OPEN) })
-                    ChoiceChip("처리한 것", selected = state.tab == ReviewState.DONE, onClick = { viewModel.showTab(ReviewState.DONE) })
+                    ReviewTab.entries.forEach { tab ->
+                        ChoiceChip(tab.label, selected = state.tab == tab, onClick = { viewModel.showTab(tab) })
+                    }
                     TypeFilter(state.type, onPick = viewModel::filterType)
                 }
             }
@@ -99,6 +101,9 @@ fun ReviewsScreen(
                     documentTitles = state.documentTitles,
                     onAct = { verdict -> viewModel.act(item, verdict) },
                     onOpenSource = onOpenSource,
+                    onOpenPerson = onOpenPerson,
+                    recheck = state.causes[item.id]?.takeIf { state.tab == ReviewTab.RECHECK },
+                    onKeep = { viewModel.keep(item) },
                 )
             }
 
@@ -153,9 +158,13 @@ private fun TypeFilter(type: NodeType?, onPick: (NodeType?) -> Unit) {
 }
 
 @Composable
-private fun EmptyReviews(tab: ReviewState) {
+private fun EmptyReviews(tab: ReviewTab) {
     Text(
-        if (tab == ReviewState.OPEN) "확인할 것이 없습니다." else "처리한 것이 없습니다.",
+        when (tab) {
+            ReviewTab.OPEN -> "확인할 것이 없습니다."
+            ReviewTab.RECHECK -> "다시 확인할 것이 없습니다."
+            ReviewTab.DONE -> "처리한 것이 없습니다."
+        },
         style = MaterialTheme.typography.bodyLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

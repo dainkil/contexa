@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 data class ViewerUiState(
     val loading: Boolean = true,
@@ -39,6 +40,9 @@ data class ViewerUiState(
     val reviseText: String = "",
     val reviseError: String? = null,
     val savingRevision: Boolean = false,
+    /** 실패한 작업을 다시 맡기는 중. */
+    val retrying: Boolean = false,
+    val retryError: String? = null,
 ) {
     /** 지금 연 판의 처리 상태. */
     val openedVersion: VersionStatus?
@@ -120,8 +124,35 @@ class DocumentViewerViewModel(
     /** @param versionNo null이면 최신 판. */
     fun openVersion(versionNo: Int?) {
         version = versionNo
-        _state.update { it.copy(highlightId = null) }
+        _state.update { it.copy(highlightId = null, retryError = null) }
         reload()
+    }
+
+    /**
+     * 연 판의 실패한 작업을 다시 맡긴다. 맡기면 처리 중이 되므로 다시 불러오면서 폴링이 이어진다.
+     * 누가 다시 맡길 수 있는지는 server가 정한다(시킨 사람이나 OWNER). 그사이 누가 먼저 맡겼으면(409) 새로 불러온다.
+     */
+    fun retry() {
+        val current = _state.value
+        val job = retryableJob(progressOf(current.openedVersion)) ?: return
+        if (current.retrying) return
+        _state.update { it.copy(retrying = true, retryError = null) }
+        viewModelScope.launch {
+            try {
+                api.retryJob(projectId, job.id)
+                _state.update { it.copy(retrying = false, notice = "다시 맡겼습니다.") }
+                reload()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e is HttpException && e.code() == 409) {
+                    _state.update { it.copy(retrying = false) }
+                    reload()
+                } else {
+                    _state.update { it.copy(retrying = false, retryError = userMessage(e)) }
+                }
+            }
+        }
     }
 
     fun noticeShown() {

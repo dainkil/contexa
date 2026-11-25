@@ -121,7 +121,7 @@ class ReviewActionTest {
         fun impact(affected: String) = Impact(NodeKey(NodeType.TASK, "t1"), NodeKey(NodeType.TASK, affected), 1)
 
         assertEquals(
-            "확인했습니다. 이 변경에 기대는 카드 2개는 다시 확인이 필요합니다.",
+            "확인했습니다. 이 변경에 기대는 카드 2개가 영향을 받습니다.",
             resultMessage(Verdict.CONFIRM, false, listOf(impact("a"), impact("a"), impact("b"))),
         )
         assertEquals("고쳐서 확인했습니다.", resultMessage(Verdict.CONFIRM, true, emptyList()))

@@ -104,7 +104,10 @@ private fun hash(text: String): String {
     return h.toUInt().toString(36)
 }
 
-/** 처리한 뒤 알림 문장. 영향받는 카드가 있으면 다시 확인이 필요하다고 덧붙인다. */
+/**
+ * 처리한 뒤 알림 문장. 영향받는 카드 수를 덧붙인다.
+ * 그 가운데 확인된 것이 바뀌어 다시 봐야 하는 카드는 server가 검토함 "다시 확인"에 올린다.
+ */
 fun resultMessage(verdict: Verdict?, corrected: Boolean, impacts: List<Impact>): String {
     val done = when {
         verdict == Verdict.CONFIRM -> if (corrected) "고쳐서 확인했습니다." else "확인했습니다."
@@ -113,5 +116,5 @@ fun resultMessage(verdict: Verdict?, corrected: Boolean, impacts: List<Impact>):
         else -> "줄 판단을 반영했습니다."
     }
     val affected = impacts.map { it.affected.id }.toSet().size
-    return if (affected > 0) "$done 이 변경에 기대는 카드 ${affected}개는 다시 확인이 필요합니다." else done
+    return if (affected > 0) "$done 이 변경에 기대는 카드 ${affected}개가 영향을 받습니다." else done
 }

@@ -6,8 +6,15 @@ import com.contexa.android.api.DocumentInput
 import com.contexa.android.api.DocumentStatus
 import com.contexa.android.api.DocumentView
 import com.contexa.android.api.IngestStarted
+import com.contexa.android.api.JobBrief
 import com.contexa.android.api.NewVersionRequest
+import com.contexa.android.api.NodeKey
 import com.contexa.android.api.NodeType
+import com.contexa.android.api.RecheckCause
+import com.contexa.android.api.RecheckItem
+import com.contexa.android.api.RecheckPage
+import com.contexa.android.api.RecheckReason
+import com.contexa.android.api.RecheckResolved
 import com.contexa.android.api.ReviewActionRequest
 import com.contexa.android.api.ReviewApi
 import com.contexa.android.api.ReviewItem
@@ -50,6 +57,18 @@ private class FakeReviewApi : ReviewApi {
         actions += action
         return onAct(action)
     }
+
+    var rechecks: RecheckPage = RecheckPage()
+    val kept = mutableListOf<Pair<NodeType, String>>()
+    var failKeep: Exception? = null
+
+    override suspend fun rechecks(projectId: String, limit: Int?, after: String?): RecheckPage = rechecks
+
+    override suspend fun resolveRecheck(projectId: String, type: NodeType, id: String): RecheckResolved {
+        failKeep?.let { throw it }
+        kept += type to id
+        return RecheckResolved(NodeKey(type, id), 1)
+    }
 }
 
 private object NoDocuments : DocumentApi {
@@ -61,6 +80,7 @@ private object NoDocuments : DocumentApi {
         error("쓰지 않는다")
     override suspend fun reviseSpan(projectId: String, spanId: String, request: ReviseSpanRequest): Changed =
         error("쓰지 않는다")
+    override suspend fun retryJob(projectId: String, jobId: String): JobBrief = error("쓰지 않는다")
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -108,7 +128,7 @@ class ReviewsViewModelTest {
         api.pages = mapOf(null to ReviewPage())
         val viewModel = ReviewsViewModel(api, NoDocuments, "p1")
 
-        viewModel.showTab(ReviewState.DONE)
+        viewModel.showTab(ReviewTab.DONE)
         advanceUntilIdle()
         viewModel.filterType(NodeType.TASK)
         advanceUntilIdle()
@@ -158,5 +178,67 @@ class ReviewsViewModelTest {
 
         assertEquals(STALE_MESSAGE, viewModel.state.value.notice)
         assertEquals(2, api.listed.size)
+    }
+
+    private val confirmedTask = printTask(
+        "r1",
+        state = ReviewState.DONE,
+        card = view(NodeType.TASK, "t1", "인쇄 발주", ReviewStatus.CONFIRMED, mapOf("workStatus" to "PLANNED")),
+    )
+    private val revised = RecheckCause(
+        NodeKey(NodeType.SPAN, "s22"), "예산 승인 후에 인쇄를 진행합니다.", RecheckReason.SPAN_REVISION, 2, "u1",
+        "2026-11-24T01:00:00Z",
+    )
+
+    @Test
+    fun `다시 확인 탭은 따로 된 목록을 읽고, 종류는 받은 뒤에 거른다`() = runTest {
+        api.rechecks = RecheckPage(
+            listOf(
+                RecheckItem(confirmedTask, listOf(revised)),
+                RecheckItem(printTask("r2", owner = ref(NodeType.CONDITION, "c1"), card = null), listOf(revised)),
+            ),
+        )
+        val viewModel = ReviewsViewModel(api, NoDocuments, "p1")
+
+        viewModel.showTab(ReviewTab.RECHECK)
+        advanceUntilIdle()
+        assertEquals(listOf("r1", "r2"), ids(viewModel))
+        assertEquals(listOf(revised), viewModel.state.value.causes["r1"])
+        assertEquals(emptyList<Any>(), api.listed)
+
+        viewModel.filterType(NodeType.TASK)
+        advanceUntilIdle()
+        assertEquals(listOf("r1"), ids(viewModel))
+    }
+
+    @Test
+    fun `바뀐 것 없음으로 닫으면 그 카드를 보내고 목록에서 뺀다`() = runTest {
+        api.rechecks = RecheckPage(listOf(RecheckItem(confirmedTask, listOf(revised))))
+        val viewModel = ReviewsViewModel(api, NoDocuments, "p1")
+        viewModel.showTab(ReviewTab.RECHECK)
+        advanceUntilIdle()
+
+        viewModel.keep(confirmedTask)
+        advanceUntilIdle()
+
+        assertEquals(listOf(NodeType.TASK to "t1"), api.kept)
+        assertEquals(emptyList<String>(), ids(viewModel))
+        assertEquals("바뀐 것 없음으로 닫았습니다.", viewModel.state.value.notice)
+    }
+
+    @Test
+    fun `다시 확인 탭에서 묶음을 처리하면 그 카드는 목록에서 빠진다`() = runTest {
+        api.rechecks = RecheckPage(listOf(RecheckItem(confirmedTask, listOf(revised))))
+        api.onAct = { ReviewResult(confirmedTask.copy(version = 4)) }
+        val viewModel = ReviewsViewModel(api, NoDocuments, "p1")
+        viewModel.showTab(ReviewTab.RECHECK)
+        advanceUntilIdle()
+
+        viewModel.act(confirmedTask, Verdict.RETRACT)
+        advanceUntilIdle()
+
+        assertEquals(emptyList<String>(), ids(viewModel))
+        assertEquals(false, staysIn(confirmedTask, ReviewTab.RECHECK))
+        assertEquals(true, staysIn(confirmedTask, ReviewTab.DONE))
     }
 }

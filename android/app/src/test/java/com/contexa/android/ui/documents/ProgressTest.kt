@@ -37,6 +37,17 @@ fun version(parse: JobBrief?, extract: JobBrief? = null, spanCount: Int = 0) = V
 class ProgressTest {
 
     @Test
+    fun `실패로 끝난 작업만 다시 맡길 수 있다`() {
+        val failedParse = job(JobStatus.FAILED, "빈 문서")
+        assertSame(failedParse, retryableJob(progressOf(version(failedParse))))
+        val failedExtract = job(JobStatus.FAILED)
+        assertSame(failedExtract, retryableJob(progressOf(version(job(JobStatus.SUCCEEDED), failedExtract, 3))))
+        assertEquals(null, retryableJob(progressOf(version(job(JobStatus.CANCELLED)))))
+        assertEquals(null, retryableJob(progressOf(version(job(JobStatus.QUEUED)))))
+        assertEquals(null, retryableJob(progressOf(version(job(JobStatus.SUCCEEDED), job(JobStatus.SUCCEEDED), 3))))
+    }
+
+    @Test
     fun `자르기 다음에 뽑기 순서로 진행한다`() {
         progressOf(version(job(JobStatus.QUEUED))).let {
             assertEquals(Stage.QUEUED, it.stage)

@@ -18,8 +18,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 확정 = 사람이 확인해 지금 유효한 결정, 할 일 = 확인된 할 일. AI 후보는 검토함에서만 다룬다. */
-enum class ContextSection(val label: String) { CONFIRMED("확정"), TASKS("할 일") }
+/**
+ * 확정 = 사람이 확인해 지금 유효한 결정, 할 일 = 확인된 할 일, 사람 = 확인된 인물·기관과 그 언어별 표기.
+ * AI 후보 카드는 검토함에서만 다룬다.
+ */
+enum class ContextSection(val label: String) { CONFIRMED("확정"), TASKS("할 일"), PEOPLE("사람") }
 
 data class ContextUiState(
     val section: ContextSection = ContextSection.CONFIRMED,
@@ -32,6 +35,8 @@ data class ContextUiState(
     /** 내게 맡겨진 할 일만 본다. */
     val mine: Boolean = false,
     val tasks: List<TaskRow> = emptyList(),
+    /** 확인된 인물·기관. */
+    val people: List<PersonRow> = emptyList(),
     /** 바꾸는 중인 할 일의 id. */
     val busyId: String? = null,
     /** 한 번 보여 줄 알림. */
@@ -60,6 +65,7 @@ class ContextViewModel(private val api: ContextApi, private val projectId: Strin
                         groups = confirmedBoard(current),
                         notices = notices(current),
                         tasks = taskRows(tasks).filter { row -> row.canChange },
+                        people = personRows(current),
                     )
                 }
             } catch (e: CancellationException) {

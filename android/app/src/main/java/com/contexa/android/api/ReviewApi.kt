@@ -26,7 +26,23 @@ interface ReviewApi {
         @Query("after") after: String? = null,
     ): ReviewPage
 
-    /** 묶음을 확인·보류·거절·철회·정정한다. */
+    /** 다시 확인할 카드: 기대는 카드나 발언이 바뀐 확인된 카드와 그 이유. 이유가 먼저 생긴 카드부터 온다. */
+    @GET("projects/{projectId}/rechecks")
+    suspend fun rechecks(
+        @Path("projectId") projectId: String,
+        @Query("limit") limit: Int? = null,
+        @Query("after") after: String? = null,
+    ): RecheckPage
+
+    /** 다시 봤고 바뀐 것이 없다고 닫는다. 소유자·검토자만. 남은 것이 없으면 409. */
+    @POST("projects/{projectId}/rechecks/{type}/{id}/resolve")
+    suspend fun resolveRecheck(
+        @Path("projectId") projectId: String,
+        @Path("type") type: NodeType,
+        @Path("id") id: String,
+    ): RecheckResolved
+
+    /** 묶음을 확인·보류·거절·철회·정정한다. 처리한 카드의 "다시 확인"은 server가 닫는다. */
     @POST("projects/{projectId}/reviews/{reviewId}/actions")
     suspend fun act(
         @Path("projectId") projectId: String,

@@ -79,6 +79,10 @@ fun progressOf(version: VersionStatus?): Progress {
     }
 }
 
+/** 다시 맡길 수 있는 작업. 자르기나 뽑기가 실패로 끝났을 때만 있다(취소된 작업은 다시 맡기지 않는다). */
+fun retryableJob(progress: Progress): JobBrief? =
+    progress.job?.takeIf { progress.stage == Stage.FAILED && it.status == JobStatus.FAILED }
+
 /** 진행 중인 작업이 있으면 이 간격(ms)으로 다시 불러온다. */
 const val POLL_MS = 2000L
 

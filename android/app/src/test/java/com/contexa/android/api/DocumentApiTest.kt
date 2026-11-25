@@ -115,6 +115,25 @@ class DocumentApiTest {
         assertEquals("/api/v1/projects/p1/spans/s1/revisions", request.url.encodedPath)
         assertEquals("""{"expectedRevision":2,"text":"고친 발언"}""", request.body?.utf8())
     }
+
+    @Test
+    fun `다시 맡기기 - server의 작업에서 화면에 필요한 칸만 푼다`() = runBlocking {
+        server.enqueue(
+            json(
+                """{"id":"j1","projectId":"p1","type":"EXTRACT","status":"QUEUED","subjectId":"v1","payload":null,
+                "requestedBy":"u1","attempts":0,"lastError":"모델 응답 시간 초과","createdAt":"2026-11-19T10:00:00Z","finishedAt":null}""",
+            ),
+        )
+
+        val job = api.retryJob("p1", "j1")
+
+        assertEquals(JobStatus.QUEUED, job.status)
+        assertEquals(0, job.attempts)
+        assertEquals("모델 응답 시간 초과", job.lastError)
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/api/v1/projects/p1/jobs/j1/retry", request.url.encodedPath)
+    }
 }
 
 class ReviewApiTest {
@@ -177,5 +196,27 @@ class ReviewApiTest {
             """{"card":"CONFIRM","corrections":{"title":"포스터 인쇄","dueAt":null},"expectedVersion":3,"idempotencyKey":"r1:3:abc"}""",
             request.body?.utf8(),
         )
+    }
+
+    @Test
+    fun `다시 확인 - 목록을 풀고, 바뀐 것 없음은 카드 종류와 id로 보낸다`() = runBlocking {
+        server.enqueue(
+            json(
+                """{"items":[{"review":$item,"causes":[{"changed":{"type":"SPAN","id":"s1"},"label":null,
+                "reason":"SPAN_REVISION","distance":1,"actorId":"u1","at":"2026-11-24T01:00:00Z"}]}],"next":null}""",
+            ),
+        )
+        server.enqueue(json("""{"node":{"type":"TASK","id":"t1"},"resolved":2}"""))
+
+        val page = api.rechecks("p1")
+        val resolved = api.resolveRecheck("p1", NodeType.TASK, "t1")
+
+        assertNull(page.items.single().causes.single().label)
+        assertEquals(RecheckReason.SPAN_REVISION, page.items.single().causes.single().reason)
+        assertEquals("/api/v1/projects/p1/rechecks", server.takeRequest().url.encodedPath)
+        val resolve = server.takeRequest()
+        assertEquals("/api/v1/projects/p1/rechecks/TASK/t1/resolve", resolve.url.encodedPath)
+        assertEquals("POST", resolve.method)
+        assertEquals(2, resolved.resolved)
     }
 }
