@@ -3,6 +3,8 @@ package com.contexa.server.job;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -97,14 +99,98 @@ class JobOperationTest {
 	}
 
 	@Test
-	void 다시_해_볼_만한_실패는_횟수가_남은_동안_다시_줄을_서고_다_쓰면_끝난다() {
+	void 다시_해_볼_만한_실패는_잠시_쉬었다가_다시_줄을_서고_횟수를_다_쓰면_끝난다() {
 		for (int attempt = 1; attempt <= 3; attempt++) {
 			JobLease lease = jobs.claim("worker-1").orElseThrow();
 			Job after = jobs.fail(jobId, lease.attemptId(), lease.leaseToken(), "모델 응답 시간 초과", true);
 			assertThat(after.status()).isEqualTo(attempt < 3 ? JobStatus.QUEUED : JobStatus.FAILED);
 			assertThat(after.lastError()).isEqualTo("모델 응답 시간 초과");
+			if (attempt < 3) {
+				// 쉬는 시간(30초, 60초 …)이 지나기 전에는 가져가지 않는다
+				assertThat(secondsUntilRetry()).isEqualTo(JobOperation.backoff(attempt).toSeconds());
+				assertThat(jobs.claim("worker-1")).isEmpty();
+				// 시간이 지난 것으로 흉내 낸다
+				jdbc.sql("update job set not_before = now() - interval '1 second' where id = :id").param("id", jobId)
+						.update();
+			}
 		}
 		assertThat(jobs.claim("worker-1")).isEmpty();
+	}
+
+	@Test
+	void 다시_시도_간격은_두_배씩_늘고_상한이_있다() {
+		assertThat(JobOperation.backoff(1)).isEqualTo(Duration.ofSeconds(30));
+		assertThat(JobOperation.backoff(2)).isEqualTo(Duration.ofSeconds(60));
+		assertThat(JobOperation.backoff(3)).isEqualTo(Duration.ofSeconds(120));
+		assertThat(JobOperation.backoff(100)).isEqualTo(Duration.ofSeconds(30 * 64));
+	}
+
+	@Test
+	void 질문_작업은_먼저_올라온_문서_작업보다_먼저_가져간다() {
+		UUID question = jobs.enqueue(JobType.GENERATE, owner.projectId(), UUID.randomUUID(), null, owner.id(),
+				"generate:" + UUID.randomUUID());
+
+		assertThat(jobs.claim("worker-1").orElseThrow().job().id()).isEqualTo(question);
+		assertThat(jobs.claim("worker-1").orElseThrow().job().id()).isEqualTo(jobId);
+	}
+
+	@Test
+	void 오래_기다린_문서_작업은_질문_작업보다_먼저_가져간다() {
+		// 질문이 이어져 들어와도 문서 분석이 한없이 밀리지 않는다
+		jdbc.sql("update job set created_at = now() - make_interval(secs => :waited) where id = :id")
+				.param("waited", JobOperation.STARVE_AFTER.toSeconds() + 60).param("id", jobId).update();
+		UUID question = jobs.enqueue(JobType.GENERATE, owner.projectId(), UUID.randomUUID(), null, owner.id(),
+				"generate:" + UUID.randomUUID());
+
+		assertThat(jobs.claim("worker-1").orElseThrow().job().id()).isEqualTo(jobId);
+		assertThat(jobs.claim("worker-1").orElseThrow().job().id()).isEqualTo(question);
+	}
+
+	@Test
+	void 가져간_시각이_없는_시도는_임대를_늘려_주지_않는다() {
+		// V14 전에 가져간 일은 leased_at이 비어 있다. 최대 작업 시간을 잴 수 없으니 연장하지 않고 임대가 끝나게 둔다
+		JobLease lease = jobs.claim("worker-1").orElseThrow();
+		jdbc.sql("update job set leased_at = null where id = :id").param("id", jobId).update();
+
+		assertThatThrownBy(() -> jobs.renew(jobId, lease.attemptId(), lease.leaseToken()))
+				.isInstanceOf(LeaseRejectedException.class);
+	}
+
+	@Test
+	void 일하는_중이라고_알리면_임대가_늘어난다() {
+		JobLease lease = jobs.claim("worker-1").orElseThrow();
+		jdbc.sql("update job set lease_expires_at = now() + interval '1 minute' where id = :id").param("id", jobId)
+				.update();
+
+		Instant expires = jobs.renew(jobId, lease.attemptId(), lease.leaseToken());
+
+		assertThat(expires).isAfter(Instant.now().plus(Duration.ofMinutes(9)));
+		assertThat(jdbc.sql("select lease_expires_at > now() + interval '9 minutes' from job where id = :id")
+				.param("id", jobId).query(Boolean.class).single()).isTrue();
+		// 임대증이 틀리면 늘려 주지 않는다
+		assertThatThrownBy(() -> jobs.renew(jobId, lease.attemptId(), "wrong"))
+				.isInstanceOf(LeaseRejectedException.class);
+	}
+
+	@Test
+	void 한_시도가_최대_작업_시간을_넘기면_더는_늘려_주지_않는다() {
+		JobLease lease = jobs.claim("worker-1").orElseThrow();
+		jdbc.sql("update job set leased_at = now() - make_interval(secs => :over) where id = :id")
+				.param("over", JobOperation.MAX_RUN.toSeconds() + 60).param("id", jobId).update();
+
+		assertThatThrownBy(() -> jobs.renew(jobId, lease.attemptId(), lease.leaseToken()))
+				.isInstanceOf(LeaseRejectedException.class)
+				.hasMessageContaining("최대 작업 시간");
+	}
+
+	@Test
+	void 끝난_일이나_만료된_임대는_늘릴_수_없다() {
+		JobLease lease = jobs.claim("worker-1").orElseThrow();
+		jdbc.sql("update job set lease_expires_at = now() - interval '1 second' where id = :id").param("id", jobId)
+				.update();
+
+		assertThatThrownBy(() -> jobs.renew(jobId, lease.attemptId(), lease.leaseToken()))
+				.isInstanceOf(LeaseRejectedException.class);
 	}
 
 	@Test
@@ -136,6 +222,12 @@ class JobOperationTest {
 		Caller other = Fixtures.newOwner(identity);
 		assertThatThrownBy(() -> jobs.retry(other.projectId(), jobId)).isInstanceOf(JobNotFoundException.class);
 		assertThat(jobs.get(owner.projectId(), jobId).status()).isEqualTo(JobStatus.FAILED);
+	}
+
+	/** 다시 가져갈 수 있을 때까지 남은 초. 테스트는 한 트랜잭션 안이라 now()가 같은 값이다. */
+	private long secondsUntilRetry() {
+		return jdbc.sql("select extract(epoch from not_before - now())::bigint from job where id = :id")
+				.param("id", jobId).query(Long.class).single();
 	}
 
 	@Test

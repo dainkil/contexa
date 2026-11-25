@@ -232,6 +232,35 @@ public class IdentityAccess {
 				.list();
 	}
 
+	/** 구성원 한 명. 이메일은 OWNER와 본인에게만 보인다(초대·역할 변경에 필요한 사람만). */
+	public record Member(UUID userId, String displayName, String email, Role role, boolean me) {
+	}
+
+	/** 이 프로젝트의 구성원. OWNER → REVIEWER → MEMBER, 같은 역할은 먼저 들어온 순서. 구성원(사람)만 볼 수 있다. */
+	@Transactional(readOnly = true)
+	public List<Member> membersOf(Caller caller) {
+		Objects.requireNonNull(caller, "caller");
+		Role mine = caller.kind() == Caller.Kind.USER ? roleOf(caller.projectId(), caller.id()).orElse(null) : null;
+		if (mine == null) {
+			throw new NotAllowedException("프로젝트 구성원만 구성원 목록을 볼 수 있다");
+		}
+		return jdbc.sql("""
+				select m.user_id, u.display_name, u.email, m.role from project_member m
+				  join app_user u on u.id = m.user_id
+				 where m.project_id = :projectId
+				 order by case m.role when 'OWNER' then 0 when 'REVIEWER' then 1 else 2 end, m.joined_at, m.user_id
+				""")
+				.param("projectId", caller.projectId())
+				.query((rs, n) -> {
+					UUID userId = rs.getObject("user_id", UUID.class);
+					boolean me = userId.equals(caller.id());
+					return new Member(userId, rs.getString("display_name"),
+							mine == Role.OWNER || me ? rs.getString("email") : null,
+							Role.valueOf(rs.getString("role")), me);
+				})
+				.list();
+	}
+
 	// ---- 권한 ----
 
 	/** 이 요청자가 확인·정정(도장)을 할 수 있는가. 사람이고, 이 프로젝트의 OWNER나 REVIEWER여야 한다. */
@@ -447,6 +476,21 @@ public class IdentityAccess {
 				   set email = 'deleted-' || id || '@deleted.invalid', display_name = :name, password_hash = 'deleted'
 				 where id = :id
 				""").param("id", userId).param("name", DELETED_NAME).update();
+	}
+
+	/**
+	 * 이 로그인 토큰을 폐기한다(로그아웃). 이미 폐기됐거나 없는 토큰이어도 조용히 끝난다(같은 요청을 다시 보내도 된다).
+	 * 에이전트 토큰은 여기서 폐기하지 않는다. 그것은 OWNER가 프로젝트 설정에서 한다.
+	 */
+	@Transactional
+	public void logout(String token) {
+		if (token == null || token.isBlank()) {
+			return;
+		}
+		jdbc.sql("""
+				update access_token set revoked_at = now()
+				 where token_hash = :hash and kind = 'USER' and revoked_at is null
+				""").param("hash", sha256(token.strip())).update();
 	}
 
 	private record TokenRow(UUID id, String kind, UUID userId, UUID projectId, Caller.Audience audience) {

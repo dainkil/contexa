@@ -68,6 +68,14 @@ public class AuthController {
 		}
 	}
 
+	/** 로그아웃: 이 토큰을 server에서도 폐기한다. 다시 보내도 204다. */
+	@PostMapping("/auth/logout")
+	public ResponseEntity<Void> logout(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false)
+			String authorization) {
+		identity.logout(CallerResolver.bearer(authorization));
+		return ResponseEntity.noContent().build();
+	}
+
 	/** 로그인한 사람의 이메일과 이름. */
 	@GetMapping("/auth/me")
 	public IdentityAccess.Profile me(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false)
@@ -100,6 +108,12 @@ public class AuthController {
 	public Map<String, UUID> createProject(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false)
 			String authorization, @RequestBody CreateProjectRequest request) {
 		return Map.of("id", identity.createProject(user(authorization), request.title()));
+	}
+
+	/** 구성원 목록. 구성원이면 누구나 볼 수 있고, 이메일은 OWNER와 본인 것만 실린다. */
+	@GetMapping("/projects/{projectId}/members")
+	public List<IdentityAccess.Member> members(Caller caller, @PathVariable UUID projectId) {
+		return identity.membersOf(caller);
 	}
 
 	/** 가입한 사람을 이메일로 구성원에 넣거나 역할을 바꾼다. OWNER만 할 수 있다. */

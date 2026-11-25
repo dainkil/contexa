@@ -36,6 +36,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class JobOperation {
 
 	static final Duration LEASE = Duration.ofMinutes(10);
+	/** 한 시도가 임대를 연장하며 버틸 수 있는 전체 시간. 일꾼이 멈춘 채 연장만 보내도 일이 영원히 묶이지 않는다. */
+	static final Duration MAX_RUN = Duration.ofMinutes(60);
+	/** 다시 해 볼 만한 실패 뒤 첫 대기. 시도마다 두 배가 된다(30초, 60초, …). */
+	static final Duration BACKOFF = Duration.ofSeconds(30);
+	/** 이보다 오래 기다린 문서 분석은 질문과 같은 차례로 본다. 질문이 이어져도 문서 분석이 한없이 밀리지 않는다. */
+	static final Duration STARVE_AFTER = Duration.ofMinutes(5);
 
 	private static final String COLUMNS = """
 			id, project_id, type, status, subject_id, payload, requested_by, attempts, last_error,
@@ -77,8 +83,10 @@ public class JobOperation {
 	}
 
 	/**
-	 * 가장 오래 기다린 일을 가져간다. 없으면 빈 값.
-	 * 임대 시간이 지난 일도 다시 가져갈 수 있다. 시도 횟수를 다 쓴 일은 FAILED로 끝낸다.
+	 * 가장 오래 기다린 일을 가져간다. 없으면 빈 값. 질문(GENERATE)은 사람이 화면에서 기다리므로 문서 분석보다 먼저 가져간다.
+	 * 다만 {@link #STARVE_AFTER}보다 오래 기다린 문서 분석은 질문과 같은 차례로 올려, 들어온 순서대로 가져간다.
+	 * 임대 시간이 지난 일도 다시 가져갈 수 있다. 다시 시도 간격(not_before)이 아직 안 된 일은 건너뛴다.
+	 * 시도 횟수를 다 쓴 일은 FAILED로 끝낸다.
 	 */
 	@Transactional
 	public Optional<JobLease> claim(String workerId) {
@@ -90,10 +98,13 @@ public class JobOperation {
 			}
 			Optional<Candidate> next = jdbc.sql("""
 					select id, attempts, max_attempts from job
-					 where status = 'QUEUED' or (status = 'RUNNING' and lease_expires_at < now())
-					 order by created_at, id
+					 where (status = 'QUEUED' and (not_before is null or not_before <= now()))
+					    or (status = 'RUNNING' and lease_expires_at < now())
+					 order by case when type = 'GENERATE' or created_at < now() - make_interval(secs => :starve)
+					               then 0 else 1 end, created_at, id
 					 for update skip locked limit 1
 					""")
+					.param("starve", STARVE_AFTER.toSeconds())
 					.query((rs, n) -> new Candidate(rs.getObject("id", UUID.class), rs.getInt("attempts"),
 							rs.getInt("max_attempts")))
 					.optional();
@@ -113,7 +124,7 @@ public class JobOperation {
 			jdbc.sql("""
 					update job set status = 'RUNNING', attempts = attempts + 1, attempt_id = :attemptId,
 					       lease_token_hash = :hash, leased_by = :worker, lease_expires_at = :expires,
-					       updated_at = now()
+					       leased_at = now(), not_before = null, updated_at = now()
 					 where id = :id
 					""")
 					.param("attemptId", attemptId).param("hash", sha256(token)).param("worker", workerId.strip())
@@ -134,6 +145,28 @@ public class JobOperation {
 	}
 
 	/**
+	 * 임대를 연장한다(heartbeat). 일꾼은 긴 모델 호출 중에도 주기적으로 불러 일을 놓치지 않는다.
+	 * 한 시도가 {@link #MAX_RUN}을 넘기면 더는 연장하지 않는다. 그러면 임대가 끝난 뒤 다른 시도가 가져간다.
+	 *
+	 * @return 새 만료 시각
+	 * @throws LeaseRejectedException 임대증이 맞지 않거나, 이미 만료됐거나, 너무 오래 붙잡고 있다
+	 */
+	@Transactional
+	public Instant renew(UUID jobId, UUID attemptId, String leaseToken) {
+		checkLease(jobId, attemptId, leaseToken, true);
+		OffsetDateTime expires = OffsetDateTime.now().plus(LEASE);
+		int updated = jdbc.sql("""
+				update job set lease_expires_at = :expires, updated_at = now()
+				 where id = :id and leased_at > now() - make_interval(secs => :maxRun)
+				""")
+				.param("expires", expires).param("id", jobId).param("maxRun", MAX_RUN.toSeconds()).update();
+		if (updated == 0) {
+			throw new LeaseRejectedException(jobId, "한 시도의 최대 작업 시간을 넘겼다");
+		}
+		return expires.toInstant();
+	}
+
+	/**
 	 * 결과를 받아들인다. 임대증이 맞을 때만 SUCCEEDED로 끝낸다.
 	 * 이미 끝난 일에 결과가 또 오면 거절한다.
 	 */
@@ -146,7 +179,7 @@ public class JobOperation {
 
 	/**
 	 * 일꾼이 실패를 알린다. 다시 해 볼 만하고 시도 횟수가 남았으면 줄 맨 뒤가 아니라 원래 자리에서 다시 기다리고,
-	 * 아니면 FAILED로 끝난다.
+	 * 아니면 FAILED로 끝난다. 다시 기다릴 때는 바로 가져가지 않고 잠시 쉰다(30초, 60초, … 시도마다 두 배).
 	 */
 	@Transactional
 	public Job fail(UUID jobId, UUID attemptId, String leaseToken, String reason, boolean retryable) {
@@ -159,10 +192,12 @@ public class JobOperation {
 		if (retryable && attempts.attempts() < attempts.max()) {
 			jdbc.sql("""
 					update job set status = 'QUEUED', last_error = :error, lease_token_hash = null,
-					       lease_expires_at = null, updated_at = now()
+					       lease_expires_at = null, not_before = now() + make_interval(secs => :wait),
+					       updated_at = now()
 					 where id = :id
 					""")
-					.param("error", error).param("id", jobId).update();
+					.param("error", error).param("id", jobId)
+					.param("wait", backoff(attempts.attempts()).toSeconds()).update();
 		} else {
 			finish(jobId, JobStatus.FAILED, error);
 		}
@@ -180,7 +215,8 @@ public class JobOperation {
 	public Job retry(UUID projectId, UUID jobId) {
 		int updated = jdbc.sql("""
 				update job set status = 'QUEUED', attempts = 0, attempt_id = null, lease_token_hash = null,
-				       leased_by = null, lease_expires_at = null, finished_at = null, updated_at = now()
+				       leased_by = null, lease_expires_at = null, leased_at = null, not_before = null,
+				       finished_at = null, updated_at = now()
 				 where id = :id and project_id = :projectId and status = 'FAILED'
 				""")
 				.param("id", jobId).param("projectId", projectId).update();
@@ -262,6 +298,11 @@ public class JobOperation {
 	@Transactional
 	public void purgeProject(UUID projectId) {
 		jdbc.sql("delete from job where project_id = :projectId").param("projectId", projectId).update();
+	}
+
+	/** 이번이 n번째 시도였을 때 다음 시도까지 기다릴 시간. */
+	static Duration backoff(int attempts) {
+		return BACKOFF.multipliedBy(1L << Math.clamp(attempts - 1, 0, 6));
 	}
 
 	private void checkLease(UUID jobId, UUID attemptId, String leaseToken, boolean lock) {

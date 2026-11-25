@@ -2,6 +2,7 @@ package com.contexa.server.api;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -160,6 +161,15 @@ public class InternalJobController {
 			@PathVariable UUID jobId, @RequestBody JobResult result) {
 		requireWorker(token);
 		return pipeline.handleResult(jobId, attemptId, leaseToken, result);
+	}
+
+	/** 임대 연장. 일꾼은 일하는 동안 몇 분마다 불러 일을 놓치지 않는다. 연장된 만료 시각을 돌려준다. */
+	@PostMapping("/{jobId}/heartbeat")
+	public Map<String, Instant> heartbeat(@RequestHeader(value = "X-Worker-Token", required = false) String token,
+			@RequestHeader("X-Attempt-Id") UUID attemptId, @RequestHeader("X-Lease-Token") String leaseToken,
+			@PathVariable UUID jobId) {
+		requireWorker(token);
+		return Map.of("leaseExpiresAt", jobs.renew(jobId, attemptId, leaseToken));
 	}
 
 	/** 실패를 알린다. retryable이 참이고 시도 횟수가 남았으면 다시 줄을 선다. */

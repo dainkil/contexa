@@ -398,7 +398,8 @@ public class ReviewImpact {
 		remember(caller, impactsOf(projectId, shaken), RecheckReason.REVIEW);
 		// 이 묶음을 다시 처리했으니 이 카드는 다시 본 것이다
 		rechecks.resolve(projectId, item.owner(), caller.id(), RecheckResolution.REVIEWED);
-		return new ReviewResult(view(caller, findItem(projectId, reviewId, false)), impactsOf(projectId, changed));
+		return new ReviewResult(view(caller, findItem(projectId, reviewId, false)),
+				seen(caller, impactsOf(projectId, changed)));
 	}
 
 	// ---- 업무와 조건 ----
@@ -412,7 +413,7 @@ public class ReviewImpact {
 		}
 		requireCard(caller.projectId(), new NodeRef(NodeType.TASK, taskId, 1));
 		NodeRef task = decision.changeTaskStatus(taskId, status, caller.id(), expectedRevision);
-		return new Changed(task, impactsOf(caller.projectId(), List.of(task)));
+		return new Changed(task, seen(caller, impactsOf(caller.projectId(), List.of(task))));
 	}
 
 	/**
@@ -465,7 +466,8 @@ public class ReviewImpact {
 		}
 		touch(projectId, condition.ref().key());
 		NodeRef now = requireCard(projectId, condition.ref()).ref();
-		return new Changed(now, remember(caller, impactsOf(projectId, List.of(now)), RecheckReason.CONDITION));
+		return new Changed(now,
+				seen(caller, remember(caller, impactsOf(projectId, List.of(now)), RecheckReason.CONDITION)));
 	}
 
 	/**
@@ -489,7 +491,7 @@ public class ReviewImpact {
 			throw new NotAllowedException("이 할 일의 담당자로 확인된 사람이 아니다");
 		}
 		NodeRef now = decision.recordAcceptance(taskId, caller.id(), accepted);
-		return new Changed(now, impactsOf(projectId, List.of(now)));
+		return new Changed(now, seen(caller, impactsOf(projectId, List.of(now))));
 	}
 
 	/** 이 인물·기관을 이 언어로는 이렇게 적는다고 확인한다. 검토자만 할 수 있다. 근거 발언은 없어도 된다. */
@@ -501,7 +503,7 @@ public class ReviewImpact {
 		}
 		NodeRef now = entity.confirmName(caller.projectId(), entityId, lang, form, caller.id(), evidenceSpanId);
 		// 표기를 새로 확인하는 것은 새 정보다. 기대던 것이 바뀌지 않았으므로 다시 확인으로 남기지 않는다
-		return new Changed(now, impactsOf(caller.projectId(), List.of(now)));
+		return new Changed(now, seen(caller, impactsOf(caller.projectId(), List.of(now))));
 	}
 
 	/** 이 표기는 틀렸다고 거절한다. 검토자만 할 수 있다. */
@@ -515,7 +517,8 @@ public class ReviewImpact {
 		NodeRef now = entity.rejectName(caller.projectId(), entityId, lang, form);
 		List<Impact> impacts = impactsOf(caller.projectId(), List.of(now));
 		// 확인돼 있던 표기를 거절했을 때만 다시 확인으로 남긴다. 제안 표기를 거절하는 것은 바뀐 것이 아니다
-		return new Changed(now, wasConfirmed ? remember(caller, impacts, RecheckReason.NAME) : impacts);
+		return new Changed(now,
+				seen(caller, wasConfirmed ? remember(caller, impacts, RecheckReason.NAME) : impacts));
 	}
 
 	/**
@@ -533,7 +536,8 @@ public class ReviewImpact {
 		NodeRef now = entity.linkAccount(caller.projectId(), entityId, accountId);
 		List<Impact> impacts = impactsOf(caller.projectId(), List.of(now));
 		// 이미 연결돼 있던 계정을 바꾸거나 끊을 때만 다시 확인으로 남긴다(처음 연결은 새 정보다)
-		return new Changed(now, wasLinked ? remember(caller, impacts, RecheckReason.ACCOUNT) : impacts);
+		return new Changed(now,
+				seen(caller, wasLinked ? remember(caller, impacts, RecheckReason.ACCOUNT) : impacts));
 	}
 
 	/**
@@ -545,8 +549,8 @@ public class ReviewImpact {
 		requireReviewer(caller);
 		requireReadableSpans(caller, List.of(spanId));
 		NodeRef span = document.reviseSpan(caller.projectId(), spanId, expectedRevision, text, caller.id());
-		return new Changed(span,
-				remember(caller, impactsOf(caller.projectId(), List.of(span)), RecheckReason.SPAN_REVISION));
+		return new Changed(span, seen(caller,
+				remember(caller, impactsOf(caller.projectId(), List.of(span)), RecheckReason.SPAN_REVISION)));
 	}
 
 	// ---- 다시 확인 ----
@@ -616,10 +620,18 @@ public class ReviewImpact {
 		return new RecheckResolved(node, resolved);
 	}
 
-	/** 이 카드가 바뀌면 다시 확인해야 하는 카드들. 가까운 것부터 돌려준다. */
+	/**
+	 * 이 카드가 바뀌면 다시 확인해야 하는 카드들. 가까운 것부터 돌려준다.
+	 * 이 사람이 볼 수 없는 카드·발언은 빼고, 출발한 카드나 발언을 볼 수 없으면 빈 목록이다(없는 것과 구분하지 않는다).
+	 */
 	@Transactional(readOnly = true)
-	public List<Impact> listImpacts(UUID projectId, NodeRef changed) {
-		return impactsOf(projectId, List.of(changed));
+	public List<Impact> listImpacts(Caller caller, NodeRef changed) {
+		Objects.requireNonNull(caller, "caller");
+		Objects.requireNonNull(changed, "changed");
+		if (!visibleKeys(caller, List.of(changed.key())).contains(changed.key())) {
+			return List.of();
+		}
+		return seen(caller, impactsOf(caller.projectId(), List.of(changed)));
 	}
 
 	// ---- 내부: 검사 ----
@@ -1026,6 +1038,25 @@ public class ReviewImpact {
 		return nearest.values().stream()
 				.sorted((a, b) -> Integer.compare(a.distance(), b.distance()))
 				.toList();
+	}
+
+	/**
+	 * 영향 목록 가운데 이 사람이 볼 수 있는 것. 기준은 {@link #causeLabels}(안내 데스크와 같다)를 따른다.
+	 * 산출물은 요청한 사람만 읽는데 그 판단은 산출물 담당(generation)의 일이라 여기서는 그대로 둔다.
+	 * "다시 확인" 기록은 거르지 않은 목록으로 남긴다. 남기는 것은 사람이 아니라 시스템이다.
+	 */
+	private List<Impact> seen(Caller caller, List<Impact> impacts) {
+		if (impacts.isEmpty()) {
+			return impacts;
+		}
+		Set<NodeKey> visible = visibleKeys(caller, impacts.stream().map(Impact::affected).toList());
+		return impacts.stream().filter(impact -> visible.contains(impact.affected())).toList();
+	}
+
+	private Set<NodeKey> visibleKeys(Caller caller, Collection<NodeKey> keys) {
+		Set<NodeKey> visible = new HashSet<>(causeLabels(caller, keys).keySet());
+		keys.stream().filter(key -> key.type() == NodeType.ARTIFACT).forEach(visible::add);
+		return visible;
 	}
 
 	/** 영향받는 카드를 "다시 확인"으로 남긴다. 확인·보류된 결정 사건·조건·할 일만 남는다(결정·업무 관리가 거른다). */

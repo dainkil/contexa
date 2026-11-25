@@ -156,7 +156,17 @@ class IngestFlowTest {
 		mvc.perform(get("/internal/v1/jobs/" + jobId + "/content").header("X-Worker-Token", WORKER)
 				.header("X-Attempt-Id", (String) JsonPath.read(lease, "$.attemptId"))
 				.header("X-Lease-Token", "wrong"))
-				.andExpect(status().isConflict());
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.error").value("LEASE_LOST"));
+		// 일하는 중이라고 알리면 임대가 늘어난다. 임대증이 틀리면 늘려 주지 않는다
+		mvc.perform(leased(post("/internal/v1/jobs/" + jobId + "/heartbeat"), lease))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.leaseExpiresAt").isNotEmpty());
+		mvc.perform(post("/internal/v1/jobs/" + jobId + "/heartbeat").header("X-Worker-Token", WORKER)
+				.header("X-Attempt-Id", (String) JsonPath.read(lease, "$.attemptId"))
+				.header("X-Lease-Token", "wrong"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.error").value("LEASE_LOST"));
 		// 자르기 작업의 임대증으로 빈 결과를 낼 수 없다
 		mvc.perform(leased(post("/internal/v1/jobs/" + jobId + "/result"), lease)
 				.contentType(MediaType.APPLICATION_JSON).content("{\"spans\":[]}"))

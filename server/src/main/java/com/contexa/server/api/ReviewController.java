@@ -2,6 +2,7 @@ package com.contexa.server.api;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +18,7 @@ import com.contexa.server.contract.NodeKey;
 import com.contexa.server.contract.NodeRef;
 import com.contexa.server.contract.NodeType;
 import com.contexa.server.decision.TaskStatus;
+import com.contexa.server.generation.GenerationWiki;
 import com.contexa.server.identity.IdentityAccess;
 import com.contexa.server.review.Changed;
 import com.contexa.server.review.Impact;
@@ -40,10 +42,12 @@ public class ReviewController {
 
 	private final ReviewImpact review;
 	private final IdentityAccess identity;
+	private final GenerationWiki generation;
 
-	public ReviewController(ReviewImpact review, IdentityAccess identity) {
+	public ReviewController(ReviewImpact review, IdentityAccess identity, GenerationWiki generation) {
 		this.review = review;
 		this.identity = identity;
+		this.generation = generation;
 	}
 
 	/**
@@ -70,34 +74,35 @@ public class ReviewController {
 			@RequestBody ActionRequest request) {
 		ReviewAction action = new ReviewAction(request.card(), request.corrections(), request.edges(),
 				request.edgeEvidence());
-		return review.applyAction(caller, reviewId, action, request.expectedVersion(),
+		ReviewResult result = review.applyAction(caller, reviewId, action, request.expectedVersion(),
 				request.idempotencyKey());
+		return new ReviewResult(result.item(), mine(caller, result.impacts()));
 	}
 
 	@PostMapping("/tasks/{taskId}/status")
 	public Changed taskStatus(Caller caller, @PathVariable UUID taskId,
 			@RequestBody TaskStatusRequest request) {
-		return review.changeTaskStatus(caller, taskId, request.status(), request.expectedRevision());
+		return mine(caller, review.changeTaskStatus(caller, taskId, request.status(), request.expectedRevision()));
 	}
 
 	@PostMapping("/conditions/{conditionId}/satisfied")
 	public Changed satisfied(Caller caller, @PathVariable UUID conditionId,
 			@RequestBody SatisfiedRequest request) {
-		return review.satisfyCondition(caller, conditionId, request.by(), request.evidence());
+		return mine(caller, review.satisfyCondition(caller, conditionId, request.by(), request.evidence()));
 	}
 
 	/** 담당자 본인이 업무를 수락하거나 거절한다. */
 	@PostMapping("/tasks/{taskId}/acceptance")
 	public Changed acceptance(Caller caller, @PathVariable UUID taskId, @RequestBody AcceptanceRequest request) {
-		return review.acceptTask(caller, taskId, request.accepted());
+		return mine(caller, review.acceptTask(caller, taskId, request.accepted()));
 	}
 
 	/** 이 인물·기관을 이 언어로는 이렇게 적는다고 확인하거나(confirmed=true), 틀린 표기라고 거절한다. */
 	@PostMapping("/entities/{entityId}/names")
 	public Changed name(Caller caller, @PathVariable UUID entityId, @RequestBody NameRequest request) {
-		return request.confirmed()
+		return mine(caller, request.confirmed()
 				? review.confirmName(caller, entityId, request.lang(), request.form(), request.evidenceSpanId())
-				: review.rejectName(caller, entityId, request.lang(), request.form());
+				: review.rejectName(caller, entityId, request.lang(), request.form()));
 	}
 
 	/** 이 인물이 이 이메일의 계정이라고 확인한다. email이 없으면 연결을 끊는다. */
@@ -105,13 +110,13 @@ public class ReviewController {
 	public Changed account(Caller caller, @PathVariable UUID entityId, @RequestBody AccountRequest request) {
 		UUID accountId = request.email() == null ? null : identity.userIdByEmail(request.email())
 				.orElseThrow(() -> new IllegalArgumentException("가입하지 않은 이메일이다"));
-		return review.linkAccount(caller, entityId, accountId);
+		return mine(caller, review.linkAccount(caller, entityId, accountId));
 	}
 
 	/** 발언 내용을 정정한다(전사 오류 등). */
 	@PostMapping("/spans/{spanId}/revisions")
 	public Changed reviseSpan(Caller caller, @PathVariable UUID spanId, @RequestBody ReviseSpanRequest request) {
-		return review.reviseSpan(caller, spanId, request.expectedRevision(), request.text());
+		return mine(caller, review.reviseSpan(caller, spanId, request.expectedRevision(), request.text()));
 	}
 
 	/** 검토함 "다시 확인": 기대는 것이 바뀌어 다시 봐야 하는 카드와 그 이유. 다음 쪽은 next를 after로 보낸다. */
@@ -127,10 +132,26 @@ public class ReviewController {
 		return review.resolveRecheck(caller, new NodeKey(type, id));
 	}
 
-	/** 이 카드가 바뀌면 다시 확인해야 하는 카드들. */
+	/** 이 카드가 바뀌면 다시 확인해야 하는 카드들. 요청한 사람이 볼 수 있는 것만 나온다. */
 	@GetMapping("/impacts")
 	public List<Impact> impacts(Caller caller, @RequestParam NodeType type, @RequestParam UUID id) {
-		return review.listImpacts(caller.projectId(), new NodeRef(type, id, 1));
+		return mine(caller, review.listImpacts(caller, new NodeRef(type, id, 1)));
+	}
+
+	private Changed mine(Caller caller, Changed changed) {
+		return new Changed(changed.node(), mine(caller, changed.impacts()));
+	}
+
+	/** 영향 목록의 산출물(답변·브리핑) 가운데 남이 요청한 것을 뺀다. 카드·발언은 검토 창구가 이미 걸렀다. */
+	private List<Impact> mine(Caller caller, List<Impact> impacts) {
+		List<UUID> artifacts = impacts.stream().filter(impact -> impact.affected().type() == NodeType.ARTIFACT)
+				.map(impact -> impact.affected().id()).toList();
+		if (artifacts.isEmpty()) {
+			return impacts;
+		}
+		Set<UUID> own = generation.ownArtifactIds(caller, artifacts);
+		return impacts.stream().filter(impact -> impact.affected().type() != NodeType.ARTIFACT
+				|| own.contains(impact.affected().id())).toList();
 	}
 
 	public record ActionRequest(Verdict card, Map<String, Object> corrections, Map<UUID, Verdict> edges,

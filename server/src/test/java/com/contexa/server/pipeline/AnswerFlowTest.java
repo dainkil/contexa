@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -170,6 +171,54 @@ class AnswerFlowTest {
 	}
 
 	@Test
+	void 인용이_없거나_본문의_번호가_인용을_벗어난_답은_받지_않는다() throws Exception {
+		String trace = trace();
+
+		// 사실을 말하면서 인용을 하나도 달지 않았다
+		mvc.perform(leased(post("/internal/v1/jobs/" + jobId + "/result"))
+				.contentType(MediaType.APPLICATION_JSON).content(draft(trace, "[]")))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message", containsString("인용이 하나도 없는")));
+		// 본문에 [2]가 있는데 인용은 하나뿐이다
+		mvc.perform(leased(post("/internal/v1/jobs/" + jobId + "/result"))
+				.contentType(MediaType.APPLICATION_JSON).content("""
+						{"draft":{"content":"인쇄는 보류입니다 [1]. 담당은 민지입니다 [2].","citations":%s}}
+						""".formatted(citation(trace))))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message", containsString("[2]")));
+		mvc.perform(asUser(get(base + "/generations/" + artifactId)))
+				.andExpect(jsonPath("$.status").value("PENDING"));
+	}
+
+	@Test
+	void 기록에서_찾지_못했다는_짧은_답만_인용_없이_받는다() throws Exception {
+		String notFound = "기록에서 이 질문에 답할 근거를 찾지 못했습니다.";
+
+		// 근거 없음이라면서 인용·참고한 카드를 붙이거나 길게 쓰면 받지 않는다
+		String trace = trace();
+		mvc.perform(leased(post("/internal/v1/jobs/" + jobId + "/result"))
+				.contentType(MediaType.APPLICATION_JSON).content("""
+						{"draft":{"content":"%s","citations":%s,"noEvidence":true}}
+						""".formatted(notFound, citation(trace))))
+				.andExpect(status().isBadRequest());
+		mvc.perform(leased(post("/internal/v1/jobs/" + jobId + "/result"))
+				.contentType(MediaType.APPLICATION_JSON).content("""
+						{"draft":{"content":"%s","noEvidence":true}}
+						""".formatted("가".repeat(301))))
+				.andExpect(status().isBadRequest());
+
+		mvc.perform(leased(post("/internal/v1/jobs/" + jobId + "/result"))
+				.contentType(MediaType.APPLICATION_JSON).content("""
+						{"draft":{"content":"%s","usedNodes":[],"usedEdges":[],"citations":[],"noEvidence":true}}
+						""".formatted(notFound)))
+				.andExpect(status().isOk());
+		mvc.perform(asUser(get(base + "/generations/" + artifactId)))
+				.andExpect(jsonPath("$.status").value("PUBLISHED"))
+				.andExpect(jsonPath("$.content").value(notFound))
+				.andExpect(jsonPath("$.citations", hasSize(0)));
+	}
+
+	@Test
 	void 답변은_요청한_사람만_읽고_일꾼이_실패하면_실패로_보인다() throws Exception {
 		UUID ownerId = identity.authenticateUser(userToken);
 		String email = "other-" + UUID.randomUUID() + "@contexa.test";
@@ -188,6 +237,28 @@ class AnswerFlowTest {
 		mvc.perform(asUser(get(base + "/generations/" + artifactId)))
 				.andExpect(jsonPath("$.status").value("FAILED"))
 				.andExpect(jsonPath("$.failure").value("모델이 답하기를 거절했다"));
+	}
+
+	@Test
+	void 남의_답변은_영향_목록에_나오지_않는다() throws Exception {
+		String trace = trace();
+		mvc.perform(leased(post("/internal/v1/jobs/" + jobId + "/result"))
+				.contentType(MediaType.APPLICATION_JSON).content(draft(trace, citation(trace))))
+				.andExpect(status().isOk());
+		UUID ownerId = identity.authenticateUser(userToken);
+		String email = "other-" + UUID.randomUUID() + "@contexa.test";
+		UUID other = identity.signUp(email, "다른 구성원", Fixtures.PASSWORD);
+		identity.setMember(UUID.fromString(JsonPath.read(seeded, "$.projectId")), ownerId, other, Role.REVIEWER);
+		String otherToken = identity.login(email, Fixtures.PASSWORD);
+		String budget = JsonPath.read(seeded, "$.nodes.budget.id");
+
+		mvc.perform(asUser(get(base + "/impacts")).param("type", "CONDITION").param("id", budget))
+				.andExpect(jsonPath("$[*].affected.id", hasItem(artifactId)));
+		mvc.perform(get(base + "/impacts").header("Authorization", "Bearer " + otherToken)
+				.param("type", "CONDITION").param("id", budget))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].affected.type", hasItem("TASK")))
+				.andExpect(jsonPath("$[*].affected.id", not(hasItem(artifactId))));
 	}
 
 	@Test

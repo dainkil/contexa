@@ -411,6 +411,32 @@ class ReviewImpactTest {
 	}
 
 	@Test
+	void 남의_개인_메모에서_나온_카드는_영향_목록에도_나오지_않는다() {
+		Caller member = Fixtures.newMember(identity, reviewer, Role.REVIEWER);
+		NodeRef memo = Fixtures.document(document, member, Visibility.PRIVATE, false,
+				"(개인 메모) 예산 승인 전에 인쇄소 견적을 받아 두자.").get(0);
+		Caller jobForMember = new Caller(Caller.Kind.JOB, UUID.randomUUID(), projectId, member.id(),
+				Caller.Audience.INTERNAL);
+		NodeRef budget = item("예산 승인").owner();
+		UUID reviewId = review.submitCandidates(jobForMember, new GraphCandidates(
+				List.of(new NodeDraft("quote", NodeType.TASK, Map.of("title", "인쇄소 견적 받기"))),
+				List.of(EdgeDraft.toExisting(RelType.REQUIRES, "quote", budget, List.of(memo.id())),
+						EdgeDraft.toExisting(RelType.EVIDENCED_BY, "quote", memo, List.of(memo.id()))))).get(0);
+		UUID quote = review.getReview(member, reviewId).owner().id();
+		UUID print = item("인쇄 발주").owner().id();
+
+		// 메모를 쓴 사람에게는 예산 조건이 바뀔 때 메모에서 나온 할 일도 영향으로 보인다
+		assertThat(review.listImpacts(member, budget)).extracting(impact -> impact.affected().id())
+				.contains(quote, print);
+		// 메모를 읽을 수 없는 사람에게는 그 할 일이 있다는 것조차 보이지 않는다
+		assertThat(review.listImpacts(reviewer, budget)).extracting(impact -> impact.affected().id())
+				.contains(print).doesNotContain(quote);
+		// 메모 발언에서 출발하면 아무것도 알려 주지 않는다
+		assertThat(review.listImpacts(reviewer, memo)).isEmpty();
+		assertThat(review.listImpacts(member, memo)).extracting(impact -> impact.affected().id()).contains(quote);
+	}
+
+	@Test
 	void 묶음에는_건너편_카드와_근거_원문이_함께_실린다() {
 		ReviewItem print = item("인쇄 발주");
 		assertThat(print.related()).extracting(NodeView::label).containsExactly("예산 승인");
@@ -505,7 +531,7 @@ class ReviewImpactTest {
 
 	@Test
 	void 발언이_바뀌면_영향받는_카드를_가까운_순서로_알려준다() {
-		List<Impact> impacts = review.listImpacts(projectId, span22);
+		List<Impact> impacts = review.listImpacts(reviewer, span22);
 
 		assertThat(impacts).extracting(impact -> impact.affected().type())
 				.contains(NodeType.CONDITION, NodeType.TASK, NodeType.DECISION_EVENT, NodeType.DECISION_ITEM);

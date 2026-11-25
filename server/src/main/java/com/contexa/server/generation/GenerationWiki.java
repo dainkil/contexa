@@ -5,13 +5,17 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -145,6 +149,7 @@ public class GenerationWiki {
 		if (draft.content() == null || draft.content().isBlank()) {
 			throw new IllegalArgumentException("글의 본문이 비어 있다");
 		}
+		requireGrounded(draft);
 		Caller caller = identity.callerForJob(job.id(), job.projectId(), job.requestedBy());
 		requireReadableCitations(caller, draft.citations());
 
@@ -240,6 +245,20 @@ public class GenerationWiki {
 				.list();
 	}
 
+	/** 이 가운데 내가 요청한 산출물. 영향 목록에서 남의 질문을 빼는 데 쓴다(산출물은 요청한 사람만 읽는다). */
+	@Transactional(readOnly = true)
+	public Set<UUID> ownArtifactIds(Caller caller, Collection<UUID> artifactIds) {
+		if (caller.kind() != Caller.Kind.USER || artifactIds.isEmpty()) {
+			return Set.of();
+		}
+		return new HashSet<>(jdbc.sql("""
+				select id from artifact
+				 where project_id = :projectId and requested_by = :userId and id in (:ids)
+				""")
+				.param("projectId", caller.projectId()).param("userId", caller.id()).param("ids", artifactIds)
+				.query(UUID.class).list());
+	}
+
 	public record ArtifactSummary(UUID id, GenKind kind, String question, String lang, boolean published,
 			Instant createdAt) {
 	}
@@ -315,6 +334,38 @@ public class GenerationWiki {
 	}
 
 	// ---- 내부 ----
+
+	/**
+	 * 모든 주장에는 원문 위치가 붙는다(설계 원칙 2). 사실을 말하는 답은 인용이 하나 이상 있어야 하고,
+	 * 본문의 [n]은 모두 실제 인용을 가리켜야 한다. 인용 없이 받는 것은 "기록에서 찾지 못했다"는 짧은 답뿐이다.
+	 */
+	private static void requireGrounded(Draft draft) {
+		String content = draft.content().strip();
+		if (draft.noEvidence()) {
+			if (!draft.citations().isEmpty() || !draft.usedNodes().isEmpty() || !draft.usedEdges().isEmpty()) {
+				throw new IllegalArgumentException("근거를 찾지 못했다는 답에는 인용이나 참고한 카드를 붙이지 않는다");
+			}
+			if (content.codePointCount(0, content.length()) > NO_EVIDENCE_MAX_LENGTH || CITE.matcher(content).find()) {
+				throw new IllegalArgumentException("근거를 찾지 못했다는 답은 인용 없는 짧은 한두 문장이어야 한다");
+			}
+			return;
+		}
+		if (draft.citations().isEmpty()) {
+			throw new IllegalArgumentException("인용이 하나도 없는 답은 받지 않는다. 사실을 말하는 문장마다 근거 발언을 인용해야 한다");
+		}
+		Matcher marker = CITE.matcher(content);
+		while (marker.find()) {
+			int number = Integer.parseInt(marker.group(1));
+			if (number < 1 || number > draft.citations().size()) {
+				throw new IllegalArgumentException("본문의 인용 [" + number + "]에 해당하는 발언이 없다");
+			}
+		}
+	}
+
+	/** 본문의 인용 번호 [1], [2]. */
+	private static final Pattern CITE = Pattern.compile("\\[(\\d{1,4})]");
+	/** 근거 없음 답의 최대 길이(글자). 인용 없이 길게 설명하는 것을 막는다. */
+	private static final int NO_EVIDENCE_MAX_LENGTH = 300;
 
 	/** 인용한 발언이 실제로 있고, 요청한 사람이 읽을 수 있는 문서의 것인지 확인한다. */
 	private void requireReadableCitations(Caller caller, List<NodeRef> citations) {
