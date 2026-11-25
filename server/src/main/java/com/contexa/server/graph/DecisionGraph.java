@@ -236,6 +236,82 @@ public class DecisionGraph {
 
 	// ---- 내부 ----
 
+	// ---- 계정 삭제 ----
+	// 줄은 지우지 않고 상태만 바꾸는 것이 원칙이다. 아래 함수는 계정을 지울 때 개인 자료를 남기지 않기 위해서만 쓴다.
+
+	/** 이 카드·발언들에 닿는 줄. 방향과 상태를 가리지 않는다. */
+	@Transactional(readOnly = true)
+	public List<Edge> edgesTouching(UUID projectId, Collection<UUID> nodeIds) {
+		Objects.requireNonNull(projectId, "projectId");
+		if (nodeIds.isEmpty()) {
+			return List.of();
+		}
+		return jdbc.sql("select " + COLUMNS + " from graph_edge"
+				+ " where project_id = :projectId and (src_id in (:ids) or dst_id in (:ids))"
+				+ " order by created_at, id")
+				.param("projectId", projectId)
+				.param("ids", nodeIds)
+				.query(DecisionGraph::mapEdge)
+				.list();
+	}
+
+	/** 근거 발언 중 하나라도 이 발언들에 있는 줄. 방향과 상태를 가리지 않는다. */
+	@Transactional(readOnly = true)
+	public List<Edge> edgesCiting(UUID projectId, Collection<UUID> spanIds) {
+		Objects.requireNonNull(projectId, "projectId");
+		if (spanIds.isEmpty()) {
+			return List.of();
+		}
+		return jdbc.sql("select " + COLUMNS + " from graph_edge"
+				+ " where project_id = :projectId and evidence_span_ids && cast(:spans as uuid[])"
+				+ " order by created_at, id")
+				.param("projectId", projectId)
+				.param("spans", toArrayLiteral(List.copyOf(spanIds)))
+				.query(DecisionGraph::mapEdge)
+				.list();
+	}
+
+	/** 줄을 지운다. 계정 삭제 전용. */
+	@Transactional
+	public int deleteEdges(UUID projectId, Collection<UUID> edgeIds) {
+		Objects.requireNonNull(projectId, "projectId");
+		if (edgeIds.isEmpty()) {
+			return 0;
+		}
+		return jdbc.sql("delete from graph_edge where project_id = :projectId and id in (:ids)")
+				.param("projectId", projectId)
+				.param("ids", edgeIds)
+				.update();
+	}
+
+	/**
+	 * 남는 줄의 근거 발언 목록에서 이 발언들을 뺀다. 계정 삭제 전용.
+	 * 근거가 바뀐 줄은 버전이 오르므로, 그 줄을 참고한 답변은 "다시 확인 필요"가 된다.
+	 */
+	@Transactional
+	public int removeEvidence(UUID projectId, Collection<UUID> spanIds) {
+		Objects.requireNonNull(projectId, "projectId");
+		if (spanIds.isEmpty()) {
+			return 0;
+		}
+		return jdbc.sql("""
+				update graph_edge
+				   set evidence_span_ids = array(select span_id from unnest(evidence_span_ids) as span_id
+				                                  where span_id <> all(cast(:spans as uuid[]))),
+				       version = version + 1, updated_at = clock_timestamp()
+				 where project_id = :projectId and evidence_span_ids && cast(:spans as uuid[])
+				""")
+				.param("projectId", projectId)
+				.param("spans", toArrayLiteral(List.copyOf(spanIds)))
+				.update();
+	}
+
+	/** 프로젝트의 줄을 모두 지운다. 계정 삭제로 프로젝트를 없앨 때만 쓴다. */
+	@Transactional
+	public void purgeProject(UUID projectId) {
+		jdbc.sql("delete from graph_edge where project_id = :projectId").param("projectId", projectId).update();
+	}
+
 	private UUID insert(Edge e) {
 		OffsetDateTime confirmedAt = e.confirmedAt() == null ? null
 				: OffsetDateTime.ofInstant(e.confirmedAt(), ZoneOffset.UTC);

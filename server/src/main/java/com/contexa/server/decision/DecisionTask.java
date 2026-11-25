@@ -678,6 +678,48 @@ public class DecisionTask {
 	// ---- 행 읽기와 쓰기 ----
 
 	/** 카드를 읽으면서 다른 변경이 끼어들지 못하게 잠근다. 없으면 예외. */
+	// ---- 계정 삭제 ----
+
+	/** 카드를 지운다. 계정 삭제 전용이고, 이 카드에 닿는 줄은 그래프에서 먼저 지운다. */
+	@Transactional
+	public void deleteNodes(UUID projectId, Collection<NodeKey> nodes) {
+		Objects.requireNonNull(projectId, "projectId");
+		for (Table table : Table.values()) {
+			List<UUID> ids = nodes.stream().filter(key -> key.type() == table.type).map(NodeKey::id).toList();
+			if (!ids.isEmpty()) {
+				jdbc.sql("delete from " + table.name + " where project_id = :projectId and id in (:ids)")
+						.param("projectId", projectId)
+						.param("ids", ids)
+						.update();
+			}
+		}
+	}
+
+	/** 프로젝트의 모든 결정 항목의 현재 결정과 모든 조건의 충족 여부를 다시 계산한다. 카드나 줄을 지운 뒤에 부른다. */
+	@Transactional
+	public void recomputeAll(UUID projectId) {
+		Objects.requireNonNull(projectId, "projectId");
+		jdbc.sql("select id from decision_item where project_id = :projectId order by id")
+				.param("projectId", projectId)
+				.query(UUID.class)
+				.list()
+				.forEach(this::recomputeProjection);
+		jdbc.sql("select id from decision_condition where project_id = :projectId order by id")
+				.param("projectId", projectId)
+				.query(UUID.class)
+				.list()
+				.forEach(this::recomputeCondition);
+	}
+
+	/** 프로젝트의 카드를 모두 지운다. 계정 삭제로 프로젝트를 없앨 때만 쓴다. */
+	@Transactional
+	public void purgeProject(UUID projectId) {
+		for (Table table : Table.values()) {
+			jdbc.sql("delete from " + table.name + " where project_id = :projectId").param("projectId", projectId)
+					.update();
+		}
+	}
+
 	private Row lock(Table table, UUID id) {
 		Objects.requireNonNull(id, "id");
 		return jdbc.sql("select id, project_id, status, revision from " + table.name

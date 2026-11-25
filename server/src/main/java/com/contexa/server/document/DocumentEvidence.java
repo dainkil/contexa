@@ -348,6 +348,67 @@ public class DocumentEvidence {
 
 	// ---- 내부 ----
 
+	// ---- 계정 삭제 ----
+	// 문서 판과 발언은 원래 지우지 않는다. 아래 함수는 계정을 지울 때 개인 자료를 남기지 않기 위해서만 쓴다.
+
+	/** 이 문서들의 모든 판의 발언 id. */
+	@Transactional(readOnly = true)
+	public List<UUID> spanIdsOf(UUID projectId, Collection<UUID> documentIds) {
+		if (documentIds.isEmpty()) {
+			return List.of();
+		}
+		return jdbc.sql("select id from span where project_id = :projectId and document_id in (:ids)")
+				.param("projectId", projectId).param("ids", documentIds).query(UUID.class).list();
+	}
+
+	/** 이 문서들의 모든 판 id. 자르기·뽑기 작업이 이 id를 대상으로 한다. */
+	@Transactional(readOnly = true)
+	public List<UUID> versionIdsOf(UUID projectId, Collection<UUID> documentIds) {
+		if (documentIds.isEmpty()) {
+			return List.of();
+		}
+		return jdbc.sql("""
+				select v.id from source_version v join document d on d.id = v.document_id
+				 where d.project_id = :projectId and d.id in (:ids)
+				""").param("projectId", projectId).param("ids", documentIds).query(UUID.class).list();
+	}
+
+	/**
+	 * 문서와 그 판·발언·정정 이력, 열람 범위를 지운다. 계정 삭제 전용.
+	 * 이 발언에 기대던 카드와 줄은 결재 창구(Erasure)가 먼저 지운다.
+	 */
+	@Transactional
+	public void deleteDocuments(UUID projectId, Collection<UUID> documentIds) {
+		if (documentIds.isEmpty()) {
+			return;
+		}
+		for (String sql : List.of("""
+				delete from span_history
+				 where span_id in (select id from span where project_id = :projectId and document_id in (:ids))
+				""",
+				"delete from span where project_id = :projectId and document_id in (:ids)",
+				"""
+				delete from source_version
+				 where document_id in (select id from document where project_id = :projectId and id in (:ids))
+				""",
+				"delete from document where project_id = :projectId and id in (:ids)")) {
+			jdbc.sql(sql).param("projectId", projectId).param("ids", documentIds).update();
+		}
+		identity.forgetDocuments(projectId, documentIds);
+	}
+
+	/** 프로젝트의 문서를 모두 지운다. 열람 범위는 출입 관리가 프로젝트와 함께 지운다. */
+	@Transactional
+	public void purgeProject(UUID projectId) {
+		for (String sql : List.of(
+				"delete from span_history where span_id in (select id from span where project_id = :projectId)",
+				"delete from span where project_id = :projectId",
+				"delete from source_version where document_id in (select id from document where project_id = :projectId)",
+				"delete from document where project_id = :projectId")) {
+			jdbc.sql(sql).param("projectId", projectId).update();
+		}
+	}
+
 	private SourceVersionRef insertVersion(UUID documentId, int versionNo, String content, UUID userId) {
 		UUID id = UUID.randomUUID();
 		jdbc.sql("""

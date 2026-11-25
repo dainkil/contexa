@@ -281,6 +281,39 @@ public class GenerationWiki {
 		return id;
 	}
 
+	// ---- 계정 삭제 ----
+
+	/**
+	 * 이 사람이 요청한 산출물(질문과 답변)을 지운다. 계정 삭제 전용. 산출물은 요청한 사람만 읽으므로 남길 까닭이 없다.
+	 *
+	 * @return 지운 산출물 id. 그 작업 기록은 작업 관리가 지운다
+	 */
+	@Transactional
+	public List<UUID> deleteArtifactsOf(UUID projectId, UUID userId) {
+		List<UUID> ids = jdbc.sql("select id from artifact where project_id = :projectId and requested_by = :userId")
+				.param("projectId", projectId).param("userId", userId).query(UUID.class).list();
+		if (ids.isEmpty()) {
+			return ids;
+		}
+		graph.deleteEdges(projectId, graph.edgesTouching(projectId, ids).stream().map(Edge::id).toList());
+		for (String sql : List.of("delete from artifact_report where artifact_id in (:ids)",
+				"delete from artifact_ref where artifact_id in (:ids)",
+				"delete from artifact where id in (:ids)")) {
+			jdbc.sql(sql).param("ids", ids).update();
+		}
+		return ids;
+	}
+
+	/** 프로젝트의 산출물을 모두 지운다. 계정 삭제로 프로젝트를 없앨 때만 쓴다. 줄은 결재 창구가 지운다. */
+	@Transactional
+	public void purgeProject(UUID projectId) {
+		for (String sql : List.of("delete from artifact_report where project_id = :projectId",
+				"delete from artifact_ref where artifact_id in (select id from artifact where project_id = :projectId)",
+				"delete from artifact where project_id = :projectId")) {
+			jdbc.sql(sql).param("projectId", projectId).update();
+		}
+	}
+
 	// ---- 내부 ----
 
 	/** 인용한 발언이 실제로 있고, 요청한 사람이 읽을 수 있는 문서의 것인지 확인한다. */

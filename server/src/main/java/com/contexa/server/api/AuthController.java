@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,6 +26,7 @@ import com.contexa.server.identity.ProjectSummary;
 import com.contexa.server.identity.Role;
 import com.contexa.server.identity.SignupPolicy;
 import com.contexa.server.identity.UnauthenticatedException;
+import com.contexa.server.pipeline.AccountDeletion;
 
 /** 정문: 가입, 로그인, 프로젝트와 구성원 관리. 요청을 출입 관리의 함수 호출로 옮기기만 한다. */
 @RestController
@@ -34,11 +36,14 @@ public class AuthController {
 	private final IdentityAccess identity;
 	private final SignupPolicy signupPolicy;
 	private final LoginThrottle throttle;
+	private final AccountDeletion accountDeletion;
 
-	public AuthController(IdentityAccess identity, SignupPolicy signupPolicy, LoginThrottle throttle) {
+	public AuthController(IdentityAccess identity, SignupPolicy signupPolicy, LoginThrottle throttle,
+			AccountDeletion accountDeletion) {
 		this.identity = identity;
 		this.signupPolicy = signupPolicy;
 		this.throttle = throttle;
+		this.accountDeletion = accountDeletion;
 	}
 
 	@PostMapping("/auth/signup")
@@ -68,6 +73,20 @@ public class AuthController {
 	public IdentityAccess.Profile me(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false)
 			String authorization) {
 		return identity.profileOf(user(authorization));
+	}
+
+	/**
+	 * 계정을 지운다. 비밀번호를 다시 받는다. 나 혼자인 프로젝트는 통째로 지우고,
+	 * 함께 쓰는 프로젝트에서는 내 개인 메모·질문을 지우고 나간다(AccountDeletion).
+	 */
+	@PostMapping("/auth/me/delete")
+	public ResponseEntity<Void> deleteAccount(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false)
+			String authorization, @RequestBody DeleteAccountRequest request) {
+		accountDeletion.delete(user(authorization), request == null ? null : request.password());
+		return ResponseEntity.noContent().build();
+	}
+
+	public record DeleteAccountRequest(String password) {
 	}
 
 	/** 내가 속한 프로젝트. */

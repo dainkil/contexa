@@ -348,6 +348,54 @@ public class EntityReview {
 		return row;
 	}
 
+	// ---- 계정 삭제 ----
+
+	/** 인물·기관 카드와 그 표기를 지운다. 계정 삭제 전용이고, 이 카드에 닿는 줄은 그래프에서 먼저 지운다. */
+	@Transactional
+	public void deleteEntities(UUID projectId, Collection<UUID> entityIds) {
+		Objects.requireNonNull(projectId, "projectId");
+		if (entityIds.isEmpty()) {
+			return;
+		}
+		jdbc.sql("""
+				delete from entity_name where entity_id in (
+				    select id from entity where project_id = :projectId and id in (:ids))
+				""").param("projectId", projectId).param("ids", entityIds).update();
+		jdbc.sql("delete from entity where project_id = :projectId and id in (:ids)")
+				.param("projectId", projectId).param("ids", entityIds).update();
+	}
+
+	/** 지워질 발언에서 나온 이름 표기를 지운다. 계정 삭제 전용. 남는 인물 카드의 다른 표기는 그대로다. */
+	@Transactional
+	public void forgetNameEvidence(UUID projectId, Collection<UUID> spanIds) {
+		Objects.requireNonNull(projectId, "projectId");
+		if (spanIds.isEmpty()) {
+			return;
+		}
+		jdbc.sql("""
+				delete from entity_name
+				 where evidence_span_id in (:spans)
+				   and entity_id in (select id from entity where project_id = :projectId)
+				""").param("projectId", projectId).param("spans", spanIds).update();
+	}
+
+	/** 지워진 계정과 인물 카드의 연결을 모든 프로젝트에서 끊는다. 인물 카드와 표기는 남는다. */
+	@Transactional
+	public void unlinkAccount(UUID accountId) {
+		jdbc.sql("""
+				update entity set account_id = null, revision = revision + 1, updated_at = clock_timestamp()
+				 where account_id = :accountId
+				""").param("accountId", accountId).update();
+	}
+
+	/** 프로젝트의 인물·기관 카드를 모두 지운다. 계정 삭제로 프로젝트를 없앨 때만 쓴다. */
+	@Transactional
+	public void purgeProject(UUID projectId) {
+		jdbc.sql("delete from entity_name where entity_id in (select id from entity where project_id = :projectId)")
+				.param("projectId", projectId).update();
+		jdbc.sql("delete from entity where project_id = :projectId").param("projectId", projectId).update();
+	}
+
 	private Row lockIn(UUID projectId, UUID entityId) {
 		return jdbc.sql("select id, project_id, status, revision from entity"
 				+ " where id = :id and project_id = :projectId for update")

@@ -233,6 +233,37 @@ public class JobOperation {
 
 	// ---- 내부 ----
 
+	// ---- 계정 삭제 ----
+
+	/** 이 대상(문서의 판, 산출물)에 대한 작업 기록을 지운다. 계정 삭제 전용. */
+	@Transactional
+	public void deleteJobs(UUID projectId, Collection<UUID> subjectIds) {
+		if (subjectIds.isEmpty()) {
+			return;
+		}
+		jdbc.sql("delete from job where project_id = :projectId and subject_id in (:ids)")
+				.param("projectId", projectId).param("ids", subjectIds).update();
+	}
+
+	/**
+	 * 이 사람이 시킨, 아직 끝나지 않은 작업을 취소한다. 떠난 사람의 권한으로는 더 읽을 수 없기 때문이다.
+	 * 남은 공유 문서는 다른 구성원이 다시 맡길 수 있다.
+	 */
+	@Transactional
+	public void cancelOpenJobsOf(UUID projectId, UUID requestedBy) {
+		jdbc.sql("""
+				select id from job
+				 where project_id = :projectId and requested_by = :userId and status in ('QUEUED', 'RUNNING')
+				""").param("projectId", projectId).param("userId", requestedBy).query(UUID.class).list()
+				.forEach(jobId -> finish(jobId, JobStatus.CANCELLED, null));
+	}
+
+	/** 프로젝트의 작업 기록을 모두 지운다. 계정 삭제로 프로젝트를 없앨 때만 쓴다. 산출물을 먼저 지운다. */
+	@Transactional
+	public void purgeProject(UUID projectId) {
+		jdbc.sql("delete from job where project_id = :projectId").param("projectId", projectId).update();
+	}
+
 	private void checkLease(UUID jobId, UUID attemptId, String leaseToken, boolean lock) {
 		record Lease(String status, UUID attemptId, String hash, OffsetDateTime expires) {
 		}

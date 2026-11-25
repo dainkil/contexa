@@ -7,6 +7,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -340,6 +341,113 @@ public class IdentityAccess {
 	}
 
 	// ---- 내부 ----
+
+	// ---- 계정 삭제 ----
+
+	/** 지운 계정이 화면과 기록에 보이는 이름. */
+	public static final String DELETED_NAME = "탈퇴한 사용자";
+
+	/** 내가 속한 프로젝트 하나: 내 역할과 지금 구성원 수(나 포함). */
+	public record Membership(UUID projectId, Role role, int memberCount) {
+	}
+
+	/**
+	 * 계정을 지우기 전에 비밀번호를 다시 확인한다. 로그인 토큰을 잠깐 빌린 사람이 계정을 지우지 못하게 한다.
+	 *
+	 * @throws IllegalArgumentException 비밀번호가 맞지 않는다
+	 */
+	@Transactional(readOnly = true)
+	public void checkPassword(UUID userId, String password) {
+		String stored = jdbc.sql("select password_hash from app_user where id = :id").param("id", userId)
+				.query(String.class).optional()
+				.orElseThrow(() -> new UnauthenticatedException("없는 사용자다"));
+		if (password == null || !verifyPassword(password, stored)) {
+			throw new IllegalArgumentException("비밀번호가 맞지 않는다");
+		}
+	}
+
+	@Transactional(readOnly = true)
+	public List<Membership> membershipsOf(UUID userId) {
+		return jdbc.sql("""
+				select m.project_id, m.role,
+				       (select count(*) from project_member o where o.project_id = m.project_id) as members
+				  from project_member m
+				 where m.user_id = :userId
+				 order by m.joined_at, m.project_id
+				""").param("userId", userId)
+				.query((rs, n) -> new Membership(rs.getObject("project_id", UUID.class), Role.valueOf(rs.getString("role")),
+						rs.getInt("members")))
+				.list();
+	}
+
+	/** 이 사람이 올린 개인 메모(PRIVATE 문서). */
+	@Transactional(readOnly = true)
+	public List<UUID> privateDocumentIds(UUID projectId, UUID ownerId) {
+		return jdbc.sql("""
+				select document_id from document_acl
+				 where project_id = :projectId and owner_id = :ownerId and visibility = 'PRIVATE'
+				""").param("projectId", projectId).param("ownerId", ownerId).query(UUID.class).list();
+	}
+
+	/** 지운 문서의 열람 범위를 지운다. 자료실이 문서를 지울 때 부른다. */
+	@Transactional
+	public void forgetDocuments(UUID projectId, Collection<UUID> documentIds) {
+		if (documentIds.isEmpty()) {
+			return;
+		}
+		jdbc.sql("delete from document_acl where project_id = :projectId and document_id in (:ids)")
+				.param("projectId", projectId).param("ids", documentIds).update();
+	}
+
+	/**
+	 * 프로젝트에서 나간다. 내가 발급한 이 프로젝트의 에이전트 토큰도 지운다.
+	 * 내가 하나뿐인 OWNER였으면, 남은 사람 중 가장 먼저 들어온 REVIEWER(없으면 MEMBER)가 OWNER가 된다.
+	 * 프로젝트에 나 혼자면 부르지 않는다(프로젝트를 통째로 지운다).
+	 */
+	@Transactional
+	public void leaveProject(UUID projectId, UUID userId) {
+		Role role = roleOf(projectId, userId).orElseThrow(() -> new NotAllowedException("이 프로젝트의 구성원이 아니다"));
+		if (role == Role.OWNER && ownerCount(projectId) == 1) {
+			jdbc.sql("""
+					update project_member set role = 'OWNER'
+					 where project_id = :projectId and user_id = (
+					     select user_id from project_member
+					      where project_id = :projectId and user_id <> :userId
+					      order by case role when 'REVIEWER' then 0 else 1 end, joined_at, user_id
+					      limit 1)
+					""").param("projectId", projectId).param("userId", userId).update();
+		}
+		jdbc.sql("delete from access_token where project_id = :projectId and user_id = :userId")
+				.param("projectId", projectId).param("userId", userId).update();
+		jdbc.sql("delete from project_member where project_id = :projectId and user_id = :userId")
+				.param("projectId", projectId).param("userId", userId).update();
+	}
+
+	/** 프로젝트와 구성원·에이전트 토큰·열람 범위를 지운다. 나머지 모듈이 자기 기록을 먼저 지운 뒤에 부른다. */
+	@Transactional
+	public void purgeProject(UUID projectId) {
+		for (String sql : List.of("delete from access_token where project_id = :projectId",
+				"delete from document_acl where project_id = :projectId",
+				"delete from project_member where project_id = :projectId",
+				"delete from project where id = :projectId")) {
+			jdbc.sql(sql).param("projectId", projectId).update();
+		}
+	}
+
+	/**
+	 * 계정을 지운다. 토큰을 모두 없애고, 이메일·이름·비밀번호를 지운다.
+	 * 행은 남긴다: 공유 프로젝트에 남는 문서·검토 기록이 이 행을 가리키고, 화면에는 "탈퇴한 사용자"로 보인다.
+	 * 같은 이메일로 다시 가입할 수 있다.
+	 */
+	@Transactional
+	public void anonymize(UUID userId) {
+		jdbc.sql("delete from access_token where user_id = :id").param("id", userId).update();
+		jdbc.sql("""
+				update app_user
+				   set email = 'deleted-' || id || '@deleted.invalid', display_name = :name, password_hash = 'deleted'
+				 where id = :id
+				""").param("id", userId).param("name", DELETED_NAME).update();
+	}
 
 	private record TokenRow(UUID id, String kind, UUID userId, UUID projectId, Caller.Audience audience) {
 	}
