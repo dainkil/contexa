@@ -583,7 +583,7 @@ ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 낡은 
 - 문서 올리기: `POST /api/v1/projects/{id}/documents`, `/documents/{documentId}/versions` → `pipeline.startIngest`. 작업 상태: `GET /api/v1/projects/{id}/jobs`, `/jobs/{jobId}`(볼 수 있는 작업만). 다시 맡기기: `POST /jobs/{jobId}/retry` → `pipeline.retryJob`(실패한 작업만, 시킨 사람이나 OWNER만, 시도 횟수는 처음부터).
 - 문서 읽기: `GET /api/v1/projects/{id}/documents` → `pipeline.listDocuments`(읽을 수 있는 문서 + 최신 판 처리 상태), `GET /documents/{documentId}[?version=N | ?span=spanId]` → `pipeline.openDocument`(판 목록과 처리 상태, 연 판의 발언 또는 자르기 전 원문). 읽을 수 없는 문서는 404. version과 span을 함께 주면 400.
 - 뒷문(`InternalJobController`, AI 인턴 전용): `GET /internal/v1/jobs/ontology`, `POST /claim`, `GET /{jobId}/content`, `/{jobId}/spans`, `/{jobId}/context/state`, `POST /{jobId}/result`, `/{jobId}/failure`. 모든 요청에 일꾼 토큰(`X-Worker-Token`)이, 일을 가져간 뒤에는 임대증(`X-Attempt-Id`, `X-Lease-Token`)이 필요하다. 사람의 로그인 토큰으로는 들어올 수 없다. 누구의 권한으로 읽을지는 서버가 작업 기록에서 정한다(`identity-access.callerForJob`).
-- 개발용 패키지 `dev`: `POST /dev/seed`가 예시 사용자·프로젝트·전사문을 만들고, 실제 흐름과 같은 길(`submitCandidates` → `applyAction`)로 "국제교류 행사" 장면을 넣은 뒤 로그인 토큰을 돌려준다. `contexa.dev-seed.enabled: true`일 때만 켜진다.
+- 개발용 패키지 `dev`: `POST /dev/seed`가 예시 사용자·프로젝트·전사문을 만들고, 실제 흐름과 같은 길(`submitCandidates` → `applyAction`)로 "국제교류 행사" 장면을 넣은 뒤 로그인 토큰을 돌려준다. `POST /dev/demo`는 시연 계정과 "국제교류의 밤 준비" 프로젝트를 만든다. `POST /dev/eval/corpus {title, documents:[{title, kind, spans:[{speakerLabel, text}]}]}`는 평가용으로, 이미 잘린 문서를 평가 계정의 새 프로젝트에 넣고 발언 id를 돌려준다(작업 큐를 거치지 않아 모델을 부르지 않는다, `eval/retrieval.py`가 쓴다). 모두 `contexa.dev-seed.enabled: true`일 때만 켜진다.
 - `static/index.html`: 예시 데이터를 넣고 답변서와 검토함을 눈으로 확인하는 개발용 페이지.
 
 ### B.9 Python `ai-pipeline` (폴더 `ai/`)

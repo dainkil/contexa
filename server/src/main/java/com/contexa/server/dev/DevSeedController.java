@@ -2,6 +2,7 @@ package com.contexa.server.dev;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 개발용: 예시 데이터를 새 프로젝트에 넣고 그 프로젝트 id와 카드 id를 돌려준다. */
@@ -11,10 +12,12 @@ public class DevSeedController {
 
 	private final DevSeed seed;
 	private final DemoSeed demo;
+	private final EvalCorpus eval;
 
-	public DevSeedController(DevSeed seed, DemoSeed demo) {
+	public DevSeedController(DevSeed seed, DemoSeed demo, EvalCorpus eval) {
 		this.seed = seed;
 		this.demo = demo;
+		this.eval = eval;
 	}
 
 	@PostMapping("/dev/seed")
@@ -26,5 +29,11 @@ public class DevSeedController {
 	@PostMapping("/dev/demo")
 	public DemoSeed.Seeded demo() {
 		return demo.seed();
+	}
+
+	/** 평가용: 이미 잘린 합성 문서를 새 프로젝트에 넣는다. 작업 큐를 거치지 않는다. */
+	@PostMapping("/dev/eval/corpus")
+	public EvalCorpus.Loaded evalCorpus(@RequestBody EvalCorpus.Corpus corpus) {
+		return eval.load(corpus);
 	}
 }
