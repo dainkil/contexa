@@ -1,0 +1,1592 @@
+{
+  "kind": "extract",
+  "date": "2026-11-25T15:11:38+09:00",
+  "model": "anthropic:claude-opus-5-5",
+  "prompt": "extract.v1",
+  "labels": "data/synthetic/labels/extract.json",
+  "summary": {
+    "cards": {
+      "ALL": {
+        "tp": 25,
+        "fp": 2,
+        "fn": 0,
+        "precision": 0.926,
+        "recall": 1.0
+      },
+      "TOPIC": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "DECISION_ITEM": {
+        "tp": 4,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.8,
+        "recall": 1.0
+      },
+      "DECISION_EVENT": {
+        "tp": 9,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "CONDITION": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "TASK": {
+        "tp": 8,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.889,
+        "recall": 1.0
+      },
+      "ENTITY": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      }
+    },
+    "links": {
+      "ALL": {
+        "tp": 24,
+        "fp": 7,
+        "fn": 0,
+        "precision": 0.774,
+        "recall": 1.0
+      },
+      "HAS_ITEM": {
+        "tp": 4,
+        "fp": 2,
+        "fn": 0,
+        "precision": 0.667,
+        "recall": 1.0
+      },
+      "HAS_EVENT": {
+        "tp": 9,
+        "fp": 2,
+        "fn": 0,
+        "precision": 0.818,
+        "recall": 1.0
+      },
+      "SUPERSEDES": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "REQUIRES": {
+        "tp": 2,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.667,
+        "recall": 1.0
+      },
+      "SATISFIED_BY": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "ASSIGNED_TO": {
+        "tp": 7,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.875,
+        "recall": 1.0
+      },
+      "CONFLICTS_WITH": {
+        "tp": 0,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": null
+      }
+    },
+    "cross_links": {
+      "tp": 15,
+      "fp": 5,
+      "fn": 0,
+      "precision": 0.75,
+      "recall": 1.0
+    },
+    "event_kind_accuracy": {
+      "correct": 8,
+      "total": 9,
+      "rate": 0.889
+    },
+    "evidence_exact": {
+      "correct": 19,
+      "total": 19,
+      "rate": 1.0
+    },
+    "misclassified_as_decided": 0,
+    "duplicates": 0,
+    "dropped_by_worker": 0
+  },
+  "tokens": {
+    "calls": 0,
+    "input": 0,
+    "output": 0
+  },
+  "meetings": [
+    {
+      "document": "m1",
+      "cards": {
+        "TOPIC": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "DECISION_ITEM": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 0
+        },
+        "DECISION_EVENT": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 0
+        },
+        "CONDITION": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "TASK": {
+          "tp": 1,
+          "fp": 1,
+          "fn": 0
+        },
+        "ENTITY": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        }
+      },
+      "links": {
+        "HAS_ITEM": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 0
+        },
+        "HAS_EVENT": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 0
+        },
+        "SUPERSEDES": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "WITHDRAWS": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "REQUIRES": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "SATISFIED_BY": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "ASSIGNED_TO": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "CONFLICTS_WITH": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        }
+      },
+      "cross_links": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0
+      },
+      "event_kind": {
+        "correct": 3,
+        "total": 3
+      },
+      "evidence": {
+        "correct": 4,
+        "total": 4
+      },
+      "misclassified": [],
+      "duplicates": [],
+      "dropped": [],
+      "extra": [
+        "[TASK] 장소 후보 더 알아보기 [5]"
+      ],
+      "missed": []
+    },
+    {
+      "document": "m2",
+      "cards": {
+        "TOPIC": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "DECISION_ITEM": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "DECISION_EVENT": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0
+        },
+        "CONDITION": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0
+        },
+        "TASK": {
+          "tp": 4,
+          "fp": 0,
+          "fn": 0
+        },
+        "ENTITY": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        }
+      },
+      "links": {
+        "HAS_ITEM": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "HAS_EVENT": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0
+        },
+        "SUPERSEDES": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "WITHDRAWS": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "REQUIRES": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0
+        },
+        "SATISFIED_BY": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "ASSIGNED_TO": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 0
+        },
+        "CONFLICTS_WITH": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 0
+        }
+      },
+      "cross_links": {
+        "tp": 6,
+        "fp": 1,
+        "fn": 0
+      },
+      "event_kind": {
+        "correct": 2,
+        "total": 2
+      },
+      "evidence": {
+        "correct": 8,
+        "total": 8
+      },
+      "misclassified": [],
+      "duplicates": [],
+      "dropped": [],
+      "extra": [
+        "줄 CONFLICTS_WITH: m2.inperson_prop → m1.online"
+      ],
+      "missed": []
+    },
+    {
+      "document": "m3",
+      "cards": {
+        "TOPIC": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "DECISION_ITEM": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 0
+        },
+        "DECISION_EVENT": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0
+        },
+        "CONDITION": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "TASK": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "ENTITY": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        }
+      },
+      "links": {
+        "HAS_ITEM": {
+          "tp": 0,
+          "fp": 2,
+          "fn": 0
+        },
+        "HAS_EVENT": {
+          "tp": 2,
+          "fp": 2,
+          "fn": 0
+        },
+        "SUPERSEDES": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "WITHDRAWS": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "REQUIRES": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "SATISFIED_BY": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "ASSIGNED_TO": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "CONFLICTS_WITH": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        }
+      },
+      "cross_links": {
+        "tp": 3,
+        "fp": 2,
+        "fn": 0
+      },
+      "event_kind": {
+        "correct": 1,
+        "total": 2
+      },
+      "evidence": {
+        "correct": 3,
+        "total": 3
+      },
+      "misclassified": [],
+      "duplicates": [],
+      "dropped": [],
+      "extra": [
+        "[DECISION_ITEM] 인쇄 일정 [6]",
+        "줄 HAS_ITEM: m1.topic → m3.print_item",
+        "줄 HAS_ITEM: m1.topic → (짝 없는 카드)",
+        "줄 HAS_EVENT: (짝 없는 카드) → m3.delay",
+        "줄 HAS_EVENT: (짝 없는 카드) → m3.revisit"
+      ],
+      "missed": []
+    },
+    {
+      "document": "m4",
+      "cards": {
+        "TOPIC": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "DECISION_ITEM": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "DECISION_EVENT": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0
+        },
+        "CONDITION": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "TASK": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0
+        },
+        "ENTITY": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        }
+      },
+      "links": {
+        "HAS_ITEM": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "HAS_EVENT": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0
+        },
+        "SUPERSEDES": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "WITHDRAWS": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        },
+        "REQUIRES": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 0
+        },
+        "SATISFIED_BY": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "ASSIGNED_TO": {
+          "tp": 2,
+          "fp": 1,
+          "fn": 0
+        },
+        "CONFLICTS_WITH": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0
+        }
+      },
+      "cross_links": {
+        "tp": 6,
+        "fp": 2,
+        "fn": 0
+      },
+      "event_kind": {
+        "correct": 2,
+        "total": 2
+      },
+      "evidence": {
+        "correct": 4,
+        "total": 4
+      },
+      "misclassified": [],
+      "duplicates": [],
+      "dropped": [],
+      "extra": [
+        "줄 ASSIGNED_TO: m2.book → m1.jihoon",
+        "줄 REQUIRES: m2.print → m4.arabic_review"
+      ],
+      "missed": []
+    }
+  ],
+  "outputs": [
+    {
+      "document": "m1",
+      "output": {
+        "cards": [
+          {
+            "key": "c1",
+            "type": "TOPIC",
+            "text": "국제교류의 밤",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "key": "c2",
+            "type": "DECISION_ITEM",
+            "text": "개최 방식 (온라인/대면)",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              1,
+              2
+            ]
+          },
+          {
+            "key": "c3",
+            "type": "DECISION_EVENT",
+            "text": "온라인 진행 제안",
+            "event_kind": "PROPOSAL",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "key": "c4",
+            "type": "DECISION_EVENT",
+            "text": "Online is easier to run, but exchange students want to meet in person",
+            "event_kind": "DISCUSSION",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "key": "c5",
+            "type": "DECISION_ITEM",
+            "text": "개최 날짜",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              3,
+              4
+            ]
+          },
+          {
+            "key": "c6",
+            "type": "DECISION_EVENT",
+            "text": "날짜를 11월 28일 금요일로 정함",
+            "event_kind": "DECISION",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              3,
+              4
+            ]
+          },
+          {
+            "key": "c7",
+            "type": "DECISION_ITEM",
+            "text": "장소",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "key": "c8",
+            "type": "DECISION_EVENT",
+            "text": "학생회관 세미나실 후보, 더 알아보고 다음 회의에서 결정",
+            "event_kind": "DEFERRAL",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "key": "c9",
+            "type": "TASK",
+            "text": "장소 후보 더 알아보기",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "key": "c10",
+            "type": "TASK",
+            "text": "아랍어권 학생 invitation list 정리",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              6
+            ]
+          },
+          {
+            "key": "e1",
+            "type": "ENTITY",
+            "text": "민지",
+            "event_kind": "NONE",
+            "entity_kind": "PERSON",
+            "occurred_at": "",
+            "evidence": [
+              1,
+              4
+            ]
+          },
+          {
+            "key": "e2",
+            "type": "ENTITY",
+            "text": "Sara",
+            "event_kind": "NONE",
+            "entity_kind": "PERSON",
+            "occurred_at": "",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "key": "e3",
+            "type": "ENTITY",
+            "text": "지훈",
+            "event_kind": "NONE",
+            "entity_kind": "PERSON",
+            "occurred_at": "",
+            "evidence": [
+              3,
+              5
+            ]
+          },
+          {
+            "key": "e4",
+            "type": "ENTITY",
+            "text": "Ahmed",
+            "event_kind": "NONE",
+            "entity_kind": "PERSON",
+            "occurred_at": "",
+            "evidence": [
+              6
+            ]
+          }
+        ],
+        "links": [
+          {
+            "rel": "HAS_ITEM",
+            "from": "c1",
+            "to": "c2",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "HAS_ITEM",
+            "from": "c1",
+            "to": "c5",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "rel": "HAS_ITEM",
+            "from": "c1",
+            "to": "c7",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "rel": "HAS_EVENT",
+            "from": "c2",
+            "to": "c3",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "HAS_EVENT",
+            "from": "c2",
+            "to": "c4",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "rel": "HAS_EVENT",
+            "from": "c5",
+            "to": "c6",
+            "evidence": [
+              3,
+              4
+            ]
+          },
+          {
+            "rel": "HAS_EVENT",
+            "from": "c7",
+            "to": "c8",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "rel": "DERIVED_FROM",
+            "from": "c9",
+            "to": "c7",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "rel": "ASSIGNED_TO",
+            "from": "c10",
+            "to": "e4",
+            "evidence": [
+              6
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s1",
+            "to": "e1",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s2",
+            "to": "e2",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s3",
+            "to": "e3",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s4",
+            "to": "e1",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s5",
+            "to": "e3",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s6",
+            "to": "e4",
+            "evidence": [
+              6
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "document": "m2",
+      "output": {
+        "cards": [
+          {
+            "key": "e1",
+            "type": "DECISION_EVENT",
+            "text": "대면으로 바꾸는 게 낫다는 제안",
+            "event_kind": "PROPOSAL",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "key": "c1",
+            "type": "CONDITION",
+            "text": "대면 개최를 위한 강당 확보",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "key": "t1",
+            "type": "TASK",
+            "text": "본관 강당 예약",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "key": "t2",
+            "type": "TASK",
+            "text": "초청장과 포스터 인쇄 (예산 승인 전까지 보류)",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "key": "c2",
+            "type": "CONDITION",
+            "text": "예산 승인",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "key": "t3",
+            "type": "TASK",
+            "text": "Poster design, ready by next Wednesday",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "key": "d1",
+            "type": "DECISION_ITEM",
+            "text": "케이터링",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "key": "e2",
+            "type": "DECISION_EVENT",
+            "text": "두 군데 견적을 받아 본 뒤 정하기로 함",
+            "event_kind": "DEFERRAL",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "key": "t4",
+            "type": "TASK",
+            "text": "케이터링 견적 두 군데서 받기",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "key": "t5",
+            "type": "TASK",
+            "text": "아랍어 초청장 번역",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              6,
+              7
+            ]
+          }
+        ],
+        "links": [
+          {
+            "rel": "HAS_EVENT",
+            "from": "x2",
+            "to": "e1",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "CONFLICTS_WITH",
+            "from": "e1",
+            "to": "x5",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "REQUIRES",
+            "from": "x2",
+            "to": "c1",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "SATISFIED_BY",
+            "from": "c1",
+            "to": "t1",
+            "evidence": [
+              1,
+              2
+            ]
+          },
+          {
+            "rel": "DERIVED_FROM",
+            "from": "t1",
+            "to": "x2",
+            "evidence": [
+              1,
+              2
+            ]
+          },
+          {
+            "rel": "ASSIGNED_TO",
+            "from": "t1",
+            "to": "x12",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "rel": "REQUIRES",
+            "from": "t2",
+            "to": "c2",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "rel": "ASSIGNED_TO",
+            "from": "t3",
+            "to": "x11",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "rel": "HAS_ITEM",
+            "from": "x1",
+            "to": "d1",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "rel": "HAS_EVENT",
+            "from": "d1",
+            "to": "e2",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "rel": "DERIVED_FROM",
+            "from": "t4",
+            "to": "d1",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "rel": "ASSIGNED_TO",
+            "from": "t5",
+            "to": "x9",
+            "evidence": [
+              6,
+              7
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s1",
+            "to": "x12",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s2",
+            "to": "x12",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s3",
+            "to": "x10",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s4",
+            "to": "x11",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s5",
+            "to": "x12",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s6",
+            "to": "x10",
+            "evidence": [
+              6
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s7",
+            "to": "x9",
+            "evidence": [
+              7
+            ]
+          },
+          {
+            "rel": "MENTIONS",
+            "from": "s6",
+            "to": "x9",
+            "evidence": [
+              6
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "document": "m3",
+      "output": {
+        "cards": [
+          {
+            "key": "c1",
+            "type": "DECISION_EVENT",
+            "text": "대면 개최로 확정",
+            "event_kind": "DECISION",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "key": "c2",
+            "type": "DECISION_EVENT",
+            "text": "장소를 본관 강당으로 정하자는 제안",
+            "event_kind": "PROPOSAL",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "key": "c3",
+            "type": "TASK",
+            "text": "초청장 문구 정리 (다음 주 화요일까지)",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "key": "c4",
+            "type": "DECISION_ITEM",
+            "text": "인쇄 발주 담당",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "key": "c5",
+            "type": "DECISION_EVENT",
+            "text": "발주 담당은 예산 승인 후에 정하기로 함",
+            "event_kind": "DEFERRAL",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "key": "c6",
+            "type": "ENTITY",
+            "text": "학생처",
+            "event_kind": "NONE",
+            "entity_kind": "ORGANIZATION",
+            "occurred_at": "",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "key": "c7",
+            "type": "DECISION_ITEM",
+            "text": "인쇄 일정",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              6
+            ]
+          },
+          {
+            "key": "c8",
+            "type": "DECISION_EVENT",
+            "text": "예산이 금요일까지 안 나오면 인쇄 일정을 일주일 미루자는 제안",
+            "event_kind": "PROPOSAL",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              6
+            ]
+          },
+          {
+            "key": "c9",
+            "type": "DECISION_EVENT",
+            "text": "금요일 결과 보고 다시 얘기하기로 함",
+            "event_kind": "DEFERRAL",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              7
+            ]
+          }
+        ],
+        "links": [
+          {
+            "rel": "HAS_EVENT",
+            "from": "x2",
+            "to": "c1",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "SATISFIED_BY",
+            "from": "x14",
+            "to": "s1",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "SATISFIED_BY",
+            "from": "x14",
+            "to": "x15",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "HAS_EVENT",
+            "from": "x4",
+            "to": "c2",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "rel": "ASSIGNED_TO",
+            "from": "c3",
+            "to": "x10",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "rel": "REQUIRES",
+            "from": "x16",
+            "to": "x17",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "rel": "HAS_ITEM",
+            "from": "x1",
+            "to": "c4",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "rel": "HAS_EVENT",
+            "from": "c4",
+            "to": "c5",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "rel": "HAS_ITEM",
+            "from": "x1",
+            "to": "c7",
+            "evidence": [
+              6
+            ]
+          },
+          {
+            "rel": "HAS_EVENT",
+            "from": "c7",
+            "to": "c8",
+            "evidence": [
+              6
+            ]
+          },
+          {
+            "rel": "HAS_EVENT",
+            "from": "c7",
+            "to": "c9",
+            "evidence": [
+              7
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s1",
+            "to": "x12",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s2",
+            "to": "x10",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s3",
+            "to": "x10",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s4",
+            "to": "x12",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s5",
+            "to": "x11",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s6",
+            "to": "x10",
+            "evidence": [
+              6
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s7",
+            "to": "x12",
+            "evidence": [
+              7
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "document": "m4",
+      "output": {
+        "cards": [
+          {
+            "key": "c1",
+            "type": "DECISION_EVENT",
+            "text": "강당 일정이 겹쳐 행사를 12월 5일 금요일로 옮김",
+            "event_kind": "CHANGE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "key": "c2",
+            "type": "TASK",
+            "text": "سأراجع النص العربي للدعوة قبل الطباعة",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "key": "c3",
+            "type": "TASK",
+            "text": "Invitations go out on Monday after the Arabic review",
+            "event_kind": "NONE",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "key": "c4",
+            "type": "DECISION_EVENT",
+            "text": "Suggest Hanbit Catering (lowest quote)",
+            "event_kind": "PROPOSAL",
+            "entity_kind": "NONE",
+            "occurred_at": "",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "key": "c5",
+            "type": "ENTITY",
+            "text": "Hanbit Catering",
+            "event_kind": "NONE",
+            "entity_kind": "ORGANIZATION",
+            "occurred_at": "",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "key": "c6",
+            "type": "ENTITY",
+            "text": "학생처",
+            "event_kind": "NONE",
+            "entity_kind": "ORGANIZATION",
+            "occurred_at": "",
+            "evidence": [
+              6
+            ]
+          }
+        ],
+        "links": [
+          {
+            "rel": "HAS_EVENT",
+            "from": "x3",
+            "to": "c1",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "SUPERSEDES",
+            "from": "c1",
+            "to": "x6",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "ASSIGNED_TO",
+            "from": "x15",
+            "to": "x12",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "rel": "ASSIGNED_TO",
+            "from": "c2",
+            "to": "x9",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "rel": "REQUIRES",
+            "from": "x16",
+            "to": "c2",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "rel": "REQUIRES",
+            "from": "c3",
+            "to": "c2",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "rel": "HAS_EVENT",
+            "from": "x19",
+            "to": "c4",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "rel": "SATISFIED_BY",
+            "from": "x17",
+            "to": "s6",
+            "evidence": [
+              6
+            ]
+          },
+          {
+            "rel": "ASSIGNED_TO",
+            "from": "x16",
+            "to": "x11",
+            "evidence": [
+              7,
+              8
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s1",
+            "to": "x12",
+            "evidence": [
+              1
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s2",
+            "to": "x10",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s3",
+            "to": "x9",
+            "evidence": [
+              3
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s4",
+            "to": "x9",
+            "evidence": [
+              4
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s5",
+            "to": "x11",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s6",
+            "to": "x10",
+            "evidence": [
+              6
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s7",
+            "to": "x12",
+            "evidence": [
+              7
+            ]
+          },
+          {
+            "rel": "SPOKEN_BY",
+            "from": "s8",
+            "to": "x11",
+            "evidence": [
+              8
+            ]
+          },
+          {
+            "rel": "MENTIONS",
+            "from": "s2",
+            "to": "x12",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "rel": "MENTIONS",
+            "from": "s7",
+            "to": "x11",
+            "evidence": [
+              7
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

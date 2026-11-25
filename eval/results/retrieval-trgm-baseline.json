@@ -1,0 +1,374 @@
+{
+  "kind": "retrieval",
+  "date": "2026-11-25T14:27:03+09:00",
+  "method": "pg_trgm word_similarity (글자 검색만)",
+  "k": 8,
+  "labels": "data/synthetic/labels/retrieval.json",
+  "project_id": "21776dc1-191e-41dc-ad84-694a2102da57",
+  "groups": {
+    "ko": {
+      "queries": 8,
+      "recall@8": 0.667,
+      "hit@8": 0.875
+    },
+    "en": {
+      "queries": 6,
+      "recall@8": 0.542,
+      "hit@8": 0.833
+    },
+    "ar": {
+      "queries": 4,
+      "recall@8": 0.375,
+      "hit@8": 0.75
+    },
+    "mixed": {
+      "queries": 3,
+      "recall@8": 0.833,
+      "hit@8": 1.0
+    },
+    "ALL": {
+      "queries": 21,
+      "recall@8": 0.599,
+      "hit@8": 0.857
+    }
+  },
+  "same_language": {
+    "found": 27,
+    "total": 28,
+    "rate": 0.964
+  },
+  "cross_language": {
+    "found": 0,
+    "total": 17,
+    "rate": 0.0
+  },
+  "queries": [
+    {
+      "id": "ko1",
+      "group": "ko",
+      "query": "행사 날짜가 언제로 바뀌었어?",
+      "recall": 1.0,
+      "hit": true,
+      "missed": [],
+      "found": [
+        "m4:1",
+        "m1:3"
+      ]
+    },
+    {
+      "id": "ko2",
+      "group": "ko",
+      "query": "인쇄는 언제 진행할 수 있어?",
+      "recall": 1.0,
+      "hit": true,
+      "missed": [],
+      "found": [
+        "m3:4",
+        "m2:3",
+        "m4:6",
+        "m1:1",
+        "budget:3",
+        "budget:4",
+        "m3:6",
+        "m4:7"
+      ]
+    },
+    {
+      "id": "ko3",
+      "group": "ko",
+      "query": "강당 예약은 누가 맡았어?",
+      "recall": 1.0,
+      "hit": true,
+      "missed": [],
+      "found": [
+        "m2:2",
+        "m3:1",
+        "m4:2",
+        "m4:1",
+        "m2:1",
+        "m3:2"
+      ]
+    },
+    {
+      "id": "ko4",
+      "group": "ko",
+      "query": "초청장 문구 정리 담당",
+      "recall": 1.0,
+      "hit": true,
+      "missed": [],
+      "found": [
+        "m3:3",
+        "m2:6",
+        "m2:3",
+        "budget:3",
+        "budget:2",
+        "m3:4",
+        "m4:2",
+        "m1:6"
+      ]
+    },
+    {
+      "id": "ko5",
+      "group": "ko",
+      "query": "케이터링 업체는 어디로 해?",
+      "recall": 0.5,
+      "hit": true,
+      "missed": [
+        "m4:5"
+      ],
+      "found": [
+        "m2:5",
+        "budget:4"
+      ]
+    },
+    {
+      "id": "ko6",
+      "group": "ko",
+      "query": "포스터 디자인은 누가 해?",
+      "recall": 0.0,
+      "hit": false,
+      "missed": [
+        "m2:4"
+      ],
+      "found": [
+        "m2:3",
+        "budget:3",
+        "roster:4"
+      ]
+    },
+    {
+      "id": "ko7",
+      "group": "ko",
+      "query": "아랍어 초청장 검토",
+      "recall": 0.3333333333333333,
+      "hit": true,
+      "missed": [
+        "m4:3",
+        "m4:4"
+      ],
+      "found": [
+        "m2:6",
+        "roster:5",
+        "m3:3",
+        "m2:3",
+        "budget:3",
+        "m1:6"
+      ]
+    },
+    {
+      "id": "ko8",
+      "group": "ko",
+      "query": "왜 대면으로 바꿨어?",
+      "recall": 0.5,
+      "hit": true,
+      "missed": [
+        "m1:2"
+      ],
+      "found": [
+        "m2:1",
+        "m3:1"
+      ]
+    },
+    {
+      "id": "en1",
+      "group": "en",
+      "query": "When is the event now?",
+      "recall": 0.0,
+      "hit": false,
+      "missed": [
+        "m1:3",
+        "m4:1"
+      ],
+      "found": [
+        "m3:5",
+        "m4:4",
+        "m1:2",
+        "m4:5",
+        "m4:8",
+        "m2:4",
+        "m1:6"
+      ]
+    },
+    {
+      "id": "en2",
+      "group": "en",
+      "query": "Who is designing the poster?",
+      "recall": 1.0,
+      "hit": true,
+      "missed": [],
+      "found": [
+        "m2:4",
+        "m4:4",
+        "m1:2",
+        "m3:5",
+        "m4:5",
+        "m4:8",
+        "m1:6"
+      ]
+    },
+    {
+      "id": "en3",
+      "group": "en",
+      "query": "Was the printing budget approved?",
+      "recall": 0.25,
+      "hit": true,
+      "missed": [
+        "m2:3",
+        "m4:6",
+        "budget:4"
+      ],
+      "found": [
+        "m3:5",
+        "m4:5",
+        "m4:8",
+        "m1:2",
+        "m2:4",
+        "m4:4"
+      ]
+    },
+    {
+      "id": "en4",
+      "group": "en",
+      "query": "catering quote",
+      "recall": 0.5,
+      "hit": true,
+      "missed": [
+        "m2:5"
+      ],
+      "found": [
+        "m4:5"
+      ]
+    },
+    {
+      "id": "en5",
+      "group": "en",
+      "query": "When do the invitations go out?",
+      "recall": 1.0,
+      "hit": true,
+      "missed": [],
+      "found": [
+        "m4:4",
+        "m1:2",
+        "m3:5",
+        "m4:5",
+        "m2:4",
+        "m4:8",
+        "m1:6"
+      ]
+    },
+    {
+      "id": "en6",
+      "group": "en",
+      "query": "Who places the print order?",
+      "recall": 0.5,
+      "hit": true,
+      "missed": [
+        "m4:7"
+      ],
+      "found": [
+        "m4:8",
+        "m2:4",
+        "m4:5",
+        "m4:4",
+        "m1:2",
+        "m3:5"
+      ]
+    },
+    {
+      "id": "ar1",
+      "group": "ar",
+      "query": "من سيراجع النص العربي للدعوة؟",
+      "recall": 0.5,
+      "hit": true,
+      "missed": [
+        "m4:4"
+      ],
+      "found": [
+        "m4:3",
+        "m2:7"
+      ]
+    },
+    {
+      "id": "ar2",
+      "group": "ar",
+      "query": "متى موعد الحفل؟",
+      "recall": 0.0,
+      "hit": false,
+      "missed": [
+        "m1:3",
+        "m4:1"
+      ],
+      "found": []
+    },
+    {
+      "id": "ar3",
+      "group": "ar",
+      "query": "أحمد",
+      "recall": 0.5,
+      "hit": true,
+      "missed": [
+        "m2:6"
+      ],
+      "found": [
+        "roster:5"
+      ]
+    },
+    {
+      "id": "ar4",
+      "group": "ar",
+      "query": "ترجمة الدعوة إلى العربية",
+      "recall": 0.5,
+      "hit": true,
+      "missed": [
+        "m2:6"
+      ],
+      "found": [
+        "m2:7",
+        "m4:3"
+      ]
+    },
+    {
+      "id": "mx1",
+      "group": "mixed",
+      "query": "venue booking 담당자",
+      "recall": 0.5,
+      "hit": true,
+      "missed": [
+        "m2:2"
+      ],
+      "found": [
+        "m4:2",
+        "budget:2",
+        "m3:4"
+      ]
+    },
+    {
+      "id": "mx2",
+      "group": "mixed",
+      "query": "budget 승인 났어?",
+      "recall": 1.0,
+      "hit": true,
+      "missed": [],
+      "found": [
+        "m3:5",
+        "m2:3",
+        "budget:4",
+        "m3:4",
+        "m4:6"
+      ]
+    },
+    {
+      "id": "mx3",
+      "group": "mixed",
+      "query": "Hanbit Catering 견적",
+      "recall": 1.0,
+      "hit": true,
+      "missed": [],
+      "found": [
+        "m4:5",
+        "budget:4",
+        "m2:5"
+      ]
+    }
+  ]
+}

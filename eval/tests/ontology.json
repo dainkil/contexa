@@ -1,0 +1,127 @@
+{
+ "version": "v1",
+ "rules": [
+  {
+   "rel": "HAS_ITEM",
+   "sources": [
+    "TOPIC"
+   ],
+   "targets": [
+    "DECISION_ITEM"
+   ]
+  },
+  {
+   "rel": "HAS_EVENT",
+   "sources": [
+    "DECISION_ITEM"
+   ],
+   "targets": [
+    "DECISION_EVENT"
+   ]
+  },
+  {
+   "rel": "SUPERSEDES",
+   "sources": [
+    "DECISION_EVENT"
+   ],
+   "targets": [
+    "DECISION_EVENT"
+   ]
+  },
+  {
+   "rel": "WITHDRAWS",
+   "sources": [
+    "DECISION_EVENT"
+   ],
+   "targets": [
+    "DECISION_EVENT"
+   ]
+  },
+  {
+   "rel": "REQUIRES",
+   "sources": [
+    "TASK",
+    "DECISION_ITEM"
+   ],
+   "targets": [
+    "CONDITION"
+   ]
+  },
+  {
+   "rel": "REQUIRES",
+   "sources": [
+    "TASK"
+   ],
+   "targets": [
+    "TASK"
+   ]
+  },
+  {
+   "rel": "SATISFIED_BY",
+   "sources": [
+    "CONDITION"
+   ],
+   "targets": [
+    "TASK",
+    "SPAN"
+   ]
+  },
+  {
+   "rel": "DERIVED_FROM",
+   "sources": [
+    "TASK"
+   ],
+   "targets": [
+    "DECISION_ITEM"
+   ]
+  },
+  {
+   "rel": "ASSIGNED_TO",
+   "sources": [
+    "TASK"
+   ],
+   "targets": [
+    "ENTITY"
+   ]
+  },
+  {
+   "rel": "EVIDENCED_BY",
+   "sources": [
+    "DECISION_EVENT",
+    "TASK",
+    "CONDITION"
+   ],
+   "targets": [
+    "SPAN"
+   ]
+  },
+  {
+   "rel": "SPOKEN_BY",
+   "sources": [
+    "SPAN"
+   ],
+   "targets": [
+    "ENTITY"
+   ]
+  },
+  {
+   "rel": "MENTIONS",
+   "sources": [
+    "SPAN"
+   ],
+   "targets": [
+    "ENTITY"
+   ]
+  },
+  {
+   "rel": "CONFLICTS_WITH",
+   "sources": [
+    "DECISION_EVENT"
+   ],
+   "targets": [
+    "SPAN",
+    "DECISION_EVENT"
+   ]
+  }
+ ]
+}
