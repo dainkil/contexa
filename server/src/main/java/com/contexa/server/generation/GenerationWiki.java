@@ -13,6 +13,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,6 +59,8 @@ import com.contexa.server.job.JobType;
  */
 @Service
 public class GenerationWiki {
+
+	private static final Logger log = LoggerFactory.getLogger(GenerationWiki.class);
 
 	private static final Set<String> LANGS = Set.of("ko", "en", "ar");
 	private static final int MAX_QUESTION = 2000;
@@ -238,6 +242,43 @@ public class GenerationWiki {
 
 	public record ArtifactSummary(UUID id, GenKind kind, String question, String lang, boolean published,
 			Instant createdAt) {
+	}
+
+	// ---- 신고 ----
+
+	/** 신고에 덧붙이는 글의 최대 길이. */
+	static final int MAX_REPORT_NOTE = 500;
+
+	/**
+	 * AI가 쓴 산출물을 신고한다. 산출물을 연 사람(요청한 사람)만 신고할 수 있다.
+	 * 운영자가 볼 수 있게 로그에 남긴다. 로그에는 본문·질문을 적지 않는다.
+	 *
+	 * @return 신고 id
+	 */
+	@Transactional
+	public UUID reportArtifact(Caller caller, UUID artifactId, ReportReason reason, String note) {
+		Objects.requireNonNull(reason, "reason");
+		Row row = find(caller.projectId(), artifactId, false);
+		if (caller.kind() != Caller.Kind.USER || !row.requestedBy().equals(caller.id())) {
+			throw new ArtifactNotFoundException(artifactId);
+		}
+		String text = note == null || note.isBlank() ? null : note.strip();
+		if (text != null && text.length() > MAX_REPORT_NOTE) {
+			throw new IllegalArgumentException("신고 내용은 " + MAX_REPORT_NOTE + "자까지 쓸 수 있다");
+		}
+		if (reason == ReportReason.OTHER && text == null) {
+			throw new IllegalArgumentException("기타 이유로 신고할 때는 내용을 적어 주세요");
+		}
+		UUID id = UUID.randomUUID();
+		jdbc.sql("""
+				insert into artifact_report (id, project_id, artifact_id, reported_by, reason, note)
+				values (:id, :projectId, :artifactId, :userId, :reason, :note)
+				""")
+				.param("id", id).param("projectId", caller.projectId()).param("artifactId", artifactId)
+				.param("userId", caller.id()).param("reason", reason.name()).param("note", text).update();
+		log.warn("artifact_report id={} project={} artifact={} kind={} reason={}", id, caller.projectId(), artifactId,
+				row.kind(), reason);
+		return id;
 	}
 
 	// ---- 내부 ----
