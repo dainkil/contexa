@@ -17,7 +17,9 @@ public record OpenIssue(Kind kind, NodeRef node, UUID edgeId) {
 		/** 아직 충족되지 않은 조건. */
 		UNMET_CONDITION,
 		/** 같은 이름 표기에 해당하는 인물·기관이 여럿이다. 어느 쪽인지 사람이 정해야 한다. */
-		AMBIGUOUS_NAME
+		AMBIGUOUS_NAME,
+		/** 확인된 카드인데, 기대는 카드나 발언이 그 뒤에 바뀌었다. 사람이 다시 봐야 한다. */
+		NEEDS_RECHECK
 	}
 
 	public static OpenIssue ofNode(Kind kind, NodeRef node) {

@@ -41,11 +41,17 @@ import com.contexa.server.contract.ReviewStatus;
 import com.contexa.server.contract.Source;
 import com.contexa.server.decision.DecisionTask;
 import com.contexa.server.decision.NodeNotFoundException;
+import com.contexa.server.decision.OpenRecheck;
+import com.contexa.server.decision.RecheckMark;
+import com.contexa.server.decision.RecheckReason;
+import com.contexa.server.decision.RecheckResolution;
+import com.contexa.server.decision.Rechecks;
 import com.contexa.server.contract.NodeView;
 import com.contexa.server.decision.TaskStatus;
 import com.contexa.server.document.DocumentEvidence;
 import com.contexa.server.document.Span;
 import com.contexa.server.entity.EntityReview;
+import com.contexa.server.entity.NameForm;
 import com.contexa.server.graph.DecisionGraph;
 import com.contexa.server.graph.Subgraph;
 import com.contexa.server.identity.IdentityAccess;
@@ -61,6 +67,9 @@ import com.contexa.server.identity.NotAllowedException;
  * 다만 안건–항목, 항목–사건 줄은 아래쪽 카드(항목, 사건)에 딸린다. 새 사건을 확인할 때
  * "어느 항목의 사건인지"도 함께 확인해야 하기 때문이다.</li>
  * <li>바꾼 뒤에는 걸린 계산 결과를 다시 계산하게 하고, 영향받는 카드 목록을 돌려준다.</li>
+ * <li>확인된 것이 바뀌면(카드 정정·철회, 확인된 줄의 철회, 확정의 대체·철회, 확인된 표기의 거절, 계정 연결 변경,
+ * 조건 충족, 발언 정정) 거기에 기대는 확인·보류된 결정·업무 카드를 "다시 확인"으로 남긴다. 후보를 처음 확인하는
+ * 일과 할 일의 진행 상태·수락은 남기지 않는다.</li>
  * <li>근거로 대는 발언은 자료실에 실제로 있어야 하고, 대는 사람이 읽을 수 있는 문서의 것이어야 한다.</li>
  * <li>묶음의 근거를 하나도 읽을 수 없는 사람에게는 그 묶음이 보이지 않는다(개인 메모에서 나온 후보).</li>
  * </ul>
@@ -81,6 +90,12 @@ public class ReviewImpact {
 
 	/** 카드를 볼 수 있는지 따질 때 세는 근거 줄. 안내 데스크와 같은 기준이다. */
 	private static final Set<ReviewStatus> USABLE = EnumSet.of(ReviewStatus.CANDIDATE, ReviewStatus.CONFIRMED);
+
+	/** "다시 확인"으로 보여 주는 카드 상태. 그사이 거절·철회된 카드는 빠진다. */
+	private static final Set<ReviewStatus> MARKED = EnumSet.of(ReviewStatus.CONFIRMED, ReviewStatus.HELD);
+
+	/** 다른 사건을 대체하거나 철회하는 줄. */
+	private static final Set<RelType> REPLACES = EnumSet.of(RelType.SUPERSEDES, RelType.WITHDRAWS);
 
 	/** 아래쪽 카드에 딸리는 줄. */
 	private static final Set<RelType> OWNED_BY_DST = EnumSet.of(RelType.HAS_ITEM, RelType.HAS_EVENT);
@@ -128,10 +143,12 @@ public class ReviewImpact {
 	private final IdentityAccess identity;
 	private final DocumentEvidence document;
 	private final EntityReview entity;
+	private final Rechecks rechecks;
 
 	public ReviewImpact(JdbcClient jdbc, DecisionGraph graph, DecisionTask decision, IdentityAccess identity,
-			DocumentEvidence document, EntityReview entity) {
+			DocumentEvidence document, EntityReview entity, Rechecks rechecks) {
 		this.entity = entity;
+		this.rechecks = rechecks;
 		this.jdbc = jdbc;
 		this.graph = graph;
 		this.decision = decision;
@@ -328,10 +345,13 @@ public class ReviewImpact {
 		// 2. 바꾸기 전에 전부 검사한다
 		validate(projectId, item.owner(), card, action, cardFinal, bundle.edges(), edgeFinal);
 
-		// 3. 바꾼다
+		// 3. 바꾼다. changed는 영향 목록(응답)용, shaken은 "다시 확인"용이다: 확인된 것이 바뀐 경우만 담는다.
+		// 후보를 처음 확인하는 것은 새 정보일 뿐 누가 기대던 것을 바꾸지 않으므로 다시 확인으로 남기지 않는다
 		Set<NodeRef> changed = new LinkedHashSet<>();
+		Set<NodeRef> shaken = new LinkedHashSet<>();
 		NodeRef cardRef = card == null ? null : card.ref();
 		boolean person = card != null && card.ref().type() == NodeType.ENTITY;
+		boolean wasConfirmed = card != null && card.status() == ReviewStatus.CONFIRMED;
 		if (!action.corrections().isEmpty()) {
 			cardRef = person ? entity.updateFields(cardRef, action.corrections(), cardRef.revision())
 					: decision.updateFields(cardRef, action.corrections(), cardRef.revision());
@@ -342,6 +362,9 @@ public class ReviewImpact {
 					: decision.setNodeStatus(cardRef, cardFinal, caller.id(), cardRef.revision());
 			changed.add(cardRef);
 		}
+		if (wasConfirmed && (!action.corrections().isEmpty() || cardFinal != ReviewStatus.CONFIRMED)) {
+			shaken.add(cardRef);
+		}
 		for (Edge edge : bundle.edges()) {
 			ReviewStatus next = edgeFinal.get(edge.id());
 			if (next == edge.status()) {
@@ -351,6 +374,12 @@ public class ReviewImpact {
 			Edge updated = graph.setEdgeStatus(edge.id(), next, caller.id(), evidence, edge.version());
 			decision.onEdgeChanged(updated);
 			changed.add(updated.src());
+			if (edge.status() == ReviewStatus.CONFIRMED) {
+				shaken.add(updated.src());
+			} else if (next == ReviewStatus.CONFIRMED && REPLACES.contains(edge.rel())) {
+				// 확정을 대체·철회하는 줄이 확인되면, 대체된 쪽에 기대던 카드가 흔들린다
+				shaken.add(updated.dst());
+			}
 		}
 
 		// 4. 기록하고, 묶음 상태를 맞춘다
@@ -366,6 +395,9 @@ public class ReviewImpact {
 				.param("summary", summarize(action, card, cardFinal, bundle.edges(), edgeFinal))
 				.update();
 		touch(projectId, item.owner());
+		remember(caller, impactsOf(projectId, shaken), RecheckReason.REVIEW);
+		// 이 묶음을 다시 처리했으니 이 카드는 다시 본 것이다
+		rechecks.resolve(projectId, item.owner(), caller.id(), RecheckResolution.REVIEWED);
 		return new ReviewResult(view(caller, findItem(projectId, reviewId, false)), impactsOf(projectId, changed));
 	}
 
@@ -433,7 +465,7 @@ public class ReviewImpact {
 		}
 		touch(projectId, condition.ref().key());
 		NodeRef now = requireCard(projectId, condition.ref()).ref();
-		return new Changed(now, impactsOf(projectId, List.of(now)));
+		return new Changed(now, remember(caller, impactsOf(projectId, List.of(now)), RecheckReason.CONDITION));
 	}
 
 	/**
@@ -468,6 +500,7 @@ public class ReviewImpact {
 			requireReadableSpans(caller, List.of(evidenceSpanId));
 		}
 		NodeRef now = entity.confirmName(caller.projectId(), entityId, lang, form, caller.id(), evidenceSpanId);
+		// 표기를 새로 확인하는 것은 새 정보다. 기대던 것이 바뀌지 않았으므로 다시 확인으로 남기지 않는다
 		return new Changed(now, impactsOf(caller.projectId(), List.of(now)));
 	}
 
@@ -475,8 +508,14 @@ public class ReviewImpact {
 	@Transactional
 	public Changed rejectName(Caller caller, UUID entityId, String lang, String form) {
 		requireReviewer(caller);
+		boolean wasConfirmed = entity.namesOf(caller.projectId(), List.of(entityId))
+				.getOrDefault(entityId, List.of()).stream()
+				.anyMatch(name -> name.lang().equals(lang) && name.form().equals(form)
+						&& "CONFIRMED".equals(name.status()));
 		NodeRef now = entity.rejectName(caller.projectId(), entityId, lang, form);
-		return new Changed(now, impactsOf(caller.projectId(), List.of(now)));
+		List<Impact> impacts = impactsOf(caller.projectId(), List.of(now));
+		// 확인돼 있던 표기를 거절했을 때만 다시 확인으로 남긴다. 제안 표기를 거절하는 것은 바뀐 것이 아니다
+		return new Changed(now, wasConfirmed ? remember(caller, impacts, RecheckReason.NAME) : impacts);
 	}
 
 	/**
@@ -489,8 +528,12 @@ public class ReviewImpact {
 		if (accountId != null && identity.roleOf(caller.projectId(), accountId).isEmpty()) {
 			throw new IllegalArgumentException("프로젝트 구성원이 아닌 계정이다");
 		}
+		boolean wasLinked = "true".equals(requireCard(caller.projectId(), new NodeRef(NodeType.ENTITY, entityId, 1))
+				.states().get("accountLinked"));
 		NodeRef now = entity.linkAccount(caller.projectId(), entityId, accountId);
-		return new Changed(now, impactsOf(caller.projectId(), List.of(now)));
+		List<Impact> impacts = impactsOf(caller.projectId(), List.of(now));
+		// 이미 연결돼 있던 계정을 바꾸거나 끊을 때만 다시 확인으로 남긴다(처음 연결은 새 정보다)
+		return new Changed(now, wasLinked ? remember(caller, impacts, RecheckReason.ACCOUNT) : impacts);
 	}
 
 	/**
@@ -502,7 +545,75 @@ public class ReviewImpact {
 		requireReviewer(caller);
 		requireReadableSpans(caller, List.of(spanId));
 		NodeRef span = document.reviseSpan(caller.projectId(), spanId, expectedRevision, text, caller.id());
-		return new Changed(span, impactsOf(caller.projectId(), List.of(span)));
+		return new Changed(span,
+				remember(caller, impactsOf(caller.projectId(), List.of(span)), RecheckReason.SPAN_REVISION));
+	}
+
+	// ---- 다시 확인 ----
+
+	/**
+	 * 검토함 "다시 확인" 한 쪽: 기대는 카드나 발언이 바뀌어 다시 봐야 하는 카드와 그 이유.
+	 * 카드는 지금 상태의 검토 묶음으로 싣고, 이 사람이 볼 수 없는 카드는 뺀다. 바뀐 것의 내용(label)도
+	 * 이 사람이 볼 수 있을 때만 싣는다.
+	 *
+	 * @param limit 기본 50, 최대 200
+	 * @param after 앞 쪽 응답의 next
+	 */
+	@Transactional(readOnly = true)
+	public RecheckPage listRechecks(Caller caller, Integer limit, String after) {
+		Objects.requireNonNull(caller, "caller");
+		int size = limit == null ? ReviewFilter.DEFAULT_LIMIT : limit;
+		if (size < 1 || size > ReviewFilter.MAX_LIMIT) {
+			throw new IllegalArgumentException("limit은 1~" + ReviewFilter.MAX_LIMIT + " 사이여야 한다: " + size);
+		}
+		UUID projectId = caller.projectId();
+		Cursor cursor = after == null ? null : Cursor.parse(after);
+		List<OpenRecheck> open = rechecks.listOpen(projectId, size, cursor == null ? null : cursor.at(),
+				cursor == null ? null : cursor.id());
+		String next = null;
+		if (open.size() == size) {
+			OpenRecheck last = open.get(open.size() - 1);
+			next = new Cursor(last.since(), last.node().id()).encode();
+		}
+		Map<NodeKey, ItemRow> rows = itemsOf(projectId, open.stream().map(OpenRecheck::node).toList());
+		Map<NodeKey, ReviewItem> reviews = new HashMap<>();
+		views(caller, open.stream().map(recheck -> rows.get(recheck.node())).filter(Objects::nonNull).toList(), true)
+				.forEach(review -> reviews.put(review.owner().key(), review));
+		Map<NodeKey, String> labels = causeLabels(caller,
+				open.stream().flatMap(recheck -> recheck.causes().stream()).map(cause -> cause.changed()).toList());
+		List<RecheckItem> items = new ArrayList<>();
+		for (OpenRecheck recheck : open) {
+			ReviewItem review = reviews.get(recheck.node());
+			if (review == null || review.card() == null || !MARKED.contains(review.card().status())) {
+				continue;
+			}
+			items.add(new RecheckItem(review, recheck.causes().stream()
+					.map(cause -> new RecheckCauseView(cause.changed(), labels.get(cause.changed()), cause.reason(),
+							cause.distance(), cause.actorId(), cause.at()))
+					.toList()));
+		}
+		return new RecheckPage(items, next);
+	}
+
+	/**
+	 * 다시 봤고 바뀐 것이 없다고 이 카드의 "다시 확인"을 닫는다. 검토자만 할 수 있다.
+	 * 카드를 고치거나 철회하려면 그 카드의 검토 묶음을 처리한다(그러면 저절로 닫힌다).
+	 */
+	@Transactional
+	public RecheckResolved resolveRecheck(Caller caller, NodeKey node) {
+		requireReviewer(caller);
+		Objects.requireNonNull(node, "node");
+		UUID projectId = caller.projectId();
+		requireCard(projectId, new NodeRef(node.type(), node.id(), 1));
+		ItemRow item = itemsOf(projectId, List.of(node)).get(node);
+		if (item != null) {
+			requireVisible(caller, item, bundle(item));
+		}
+		int resolved = rechecks.resolve(projectId, node, caller.id(), RecheckResolution.KEPT);
+		if (resolved == 0) {
+			throw new IllegalStateException("이 카드에는 다시 확인할 것이 남아 있지 않다");
+		}
+		return new RecheckResolved(node, resolved);
 	}
 
 	/** 이 카드가 바뀌면 다시 확인해야 하는 카드들. 가까운 것부터 돌려준다. */
@@ -697,9 +808,25 @@ public class ReviewImpact {
 		List<Edge> farEvidence = gated.isEmpty() ? List.of()
 				: graph.edgesOfMany(projectId, gated, Direction.BASIS, EnumSet.of(RelType.EVIDENCED_BY), USABLE);
 
+		// 인물·기관 묶음에는 딸린 줄이 거의 없다(언급·담당 줄은 발언·할 일에 딸린다). 판단할 거리로 언어별 표기와,
+		// 그 인물을 언급한 발언, 표기마다 적힌 근거 발언을 함께 싣는다
+		List<UUID> entityIds = bundles.keySet().stream().filter(key -> key.type() == NodeType.ENTITY)
+				.map(NodeKey::id).toList();
+		Map<UUID, List<NameForm>> names = entity.namesOf(projectId, entityIds);
+		Map<UUID, Set<UUID>> mentionedIn = new HashMap<>();
+		names.forEach((id, forms) -> forms.stream().map(NameForm::evidenceSpanId).filter(Objects::nonNull)
+				.forEach(span -> mentionedIn.computeIfAbsent(id, key -> new LinkedHashSet<>()).add(span)));
+		if (!entityIds.isEmpty()) {
+			graph.edgesOfMany(projectId, entityIds.stream().map(id -> new NodeKey(NodeType.ENTITY, id)).toList(),
+					Direction.IMPACT, EnumSet.of(RelType.MENTIONS), ACTIVE)
+					.forEach(edge -> mentionedIn.computeIfAbsent(edge.dst().id(), key -> new LinkedHashSet<>())
+							.addAll(spansOf(edge)));
+		}
+
 		Set<UUID> spanIds = new LinkedHashSet<>();
 		bundles.values().forEach(bundle -> bundle.edges().forEach(edge -> spanIds.addAll(spansOf(edge))));
 		farEvidence.forEach(edge -> spanIds.add(edge.dst().id()));
+		mentionedIn.values().forEach(spanIds::addAll);
 		Map<UUID, Span> spans = new HashMap<>();
 		document.getSpans(projectId, spanIds).forEach(span -> spans.put(span.ref().id(), span));
 		Set<UUID> readableDocuments = identity.readableDocumentIds(caller);
@@ -732,14 +859,18 @@ public class ReviewImpact {
 				}
 				cited.addAll(spansOf(edge));
 			}
+			cited.addAll(mentionedIn.getOrDefault(item.owner().id(), Set.of()));
 			List<Source> sources = cited.stream().filter(readable).map(spans::get)
 					.map(span -> new Source(span.ref(), span.documentId(), span.seq(), span.speakerLabel(),
 							span.text()))
 					.toList();
 			NodeRef owner = bundle.card() != null ? bundle.card().ref()
 					: new NodeRef(item.owner().type(), item.owner().id(), 1);
+			List<NameForm> forms = item.owner().type() == NodeType.ENTITY
+					? names.getOrDefault(item.owner().id(), List.of())
+					: List.of();
 			views.add(new ReviewItem(item.id(), item.version(), item.state(), owner, bundle.card(), bundle.edges(),
-					List.copyOf(related.values()), sources));
+					List.copyOf(related.values()), sources, forms));
 		}
 		return views;
 	}
@@ -895,6 +1026,75 @@ public class ReviewImpact {
 		return nearest.values().stream()
 				.sorted((a, b) -> Integer.compare(a.distance(), b.distance()))
 				.toList();
+	}
+
+	/** 영향받는 카드를 "다시 확인"으로 남긴다. 확인·보류된 결정 사건·조건·할 일만 남는다(결정·업무 관리가 거른다). */
+	private List<Impact> remember(Caller caller, List<Impact> impacts, RecheckReason reason) {
+		rechecks.mark(caller.projectId(), impacts.stream()
+				.map(impact -> new RecheckMark(impact.affected(), impact.changed(), impact.distance()))
+				.toList(), reason, caller.id());
+		return impacts;
+	}
+
+	/** 이 카드들의 검토 묶음. 묶음이 없는 카드는 빠진다. */
+	private Map<NodeKey, ItemRow> itemsOf(UUID projectId, Collection<NodeKey> owners) {
+		Map<NodeKey, ItemRow> found = new HashMap<>();
+		if (owners.isEmpty()) {
+			return found;
+		}
+		Set<NodeKey> wanted = new HashSet<>(owners);
+		jdbc.sql("select " + ITEM_COLUMNS + " from review_item"
+				+ " where project_id = :projectId and owner_id in (:ids)")
+				.param("projectId", projectId)
+				.param("ids", owners.stream().map(NodeKey::id).distinct().toList())
+				.query(ReviewImpact::mapItem)
+				.list()
+				.stream()
+				.filter(row -> wanted.contains(row.owner()))
+				.forEach(row -> found.put(row.owner(), row));
+		return found;
+	}
+
+	/**
+	 * 바뀐 카드·발언의 내용 가운데 이 사람이 볼 수 있는 것. 발언은 읽을 수 있는 문서의 것만,
+	 * 근거 줄이 있는 카드는 그 발언 중 하나라도 읽을 수 있을 때만 싣는다(안내 데스크와 같은 기준).
+	 */
+	private Map<NodeKey, String> causeLabels(Caller caller, Collection<NodeKey> keys) {
+		Map<NodeKey, String> labels = new HashMap<>();
+		if (keys.isEmpty()) {
+			return labels;
+		}
+		UUID projectId = caller.projectId();
+		Set<UUID> readableDocuments = identity.readableDocumentIds(caller);
+		List<NodeView> views = cards(projectId, keys.stream().filter(key -> isCard(key.type())).distinct()
+				.map(key -> new NodeRef(key.type(), key.id(), 1)).toList());
+		List<NodeKey> gated = views.stream().map(view -> view.ref().key())
+				.filter(key -> NEEDS_EVIDENCE.contains(key.type())).toList();
+		Map<NodeKey, Set<UUID>> evidenceOf = new HashMap<>();
+		if (!gated.isEmpty()) {
+			graph.edgesOfMany(projectId, gated, Direction.BASIS, EnumSet.of(RelType.EVIDENCED_BY), USABLE)
+					.forEach(edge -> evidenceOf.computeIfAbsent(edge.src().key(), key -> new HashSet<>())
+							.add(edge.dst().id()));
+		}
+		Set<UUID> spanIds = new HashSet<>();
+		keys.stream().filter(key -> key.type() == NodeType.SPAN).forEach(key -> spanIds.add(key.id()));
+		evidenceOf.values().forEach(spanIds::addAll);
+		Map<UUID, Span> readable = new HashMap<>();
+		document.getSpans(projectId, spanIds).stream()
+				.filter(span -> readableDocuments.contains(span.documentId()))
+				.forEach(span -> readable.put(span.ref().id(), span));
+		for (NodeKey key : keys) {
+			if (key.type() == NodeType.SPAN && readable.containsKey(key.id())) {
+				labels.put(key, readable.get(key.id()).text());
+			}
+		}
+		for (NodeView view : views) {
+			Set<UUID> evidence = evidenceOf.get(view.ref().key());
+			if (evidence == null || evidence.stream().anyMatch(readable::containsKey)) {
+				labels.put(view.ref().key(), view.label());
+			}
+		}
+		return labels;
 	}
 
 	private static NodeType endType(String key, NodeRef ref, Map<String, NodeType> draftTypes) {

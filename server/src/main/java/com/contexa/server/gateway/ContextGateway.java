@@ -42,12 +42,14 @@ import com.contexa.server.contract.StaleRef;
 import com.contexa.server.decision.DecisionStatus;
 import com.contexa.server.decision.DecisionTask;
 import com.contexa.server.decision.NodeNotFoundException;
+import com.contexa.server.decision.Rechecks;
 import com.contexa.server.contract.NodeView;
 import com.contexa.server.document.DocumentEvidence;
 import com.contexa.server.document.Span;
 import com.contexa.server.entity.EntityCandidate;
 import com.contexa.server.entity.EntityReview;
 import com.contexa.server.entity.NameCard;
+import com.contexa.server.entity.NameForm;
 import com.contexa.server.graph.DecisionGraph;
 import com.contexa.server.identity.IdentityAccess;
 import com.contexa.server.retrieval.Retrieval;
@@ -92,6 +94,9 @@ public class ContextGateway {
 			.filter(RelType::isDependency)
 			.collect(Collectors.toCollection(() -> EnumSet.noneOf(RelType.class)));
 
+	/** 이름 카드에 싣는 원문 발언의 상한. 자주 언급된 사람도 화면 하나에 담는다. */
+	private static final int MAX_NAME_SOURCES = 20;
+
 	/** 근거 줄을 가질 수 있는 카드. 근거가 있는데 하나도 읽을 수 없으면 그 카드는 보이지 않는다. */
 	private static final Set<NodeType> EVIDENCED = EnumSet.of(NodeType.DECISION_EVENT, NodeType.CONDITION,
 			NodeType.TASK);
@@ -102,10 +107,12 @@ public class ContextGateway {
 	private final IdentityAccess identity;
 	private final EntityReview entity;
 	private final Retrieval retrieval;
+	private final Rechecks rechecks;
 
 	public ContextGateway(DecisionGraph graph, DecisionTask decision, DocumentEvidence document,
-			IdentityAccess identity, EntityReview entity, Retrieval retrieval) {
+			IdentityAccess identity, EntityReview entity, Retrieval retrieval, Rechecks rechecks) {
 		this.entity = entity;
+		this.rechecks = rechecks;
 		this.retrieval = retrieval;
 		this.graph = graph;
 		this.decision = decision;
@@ -301,11 +308,26 @@ public class ContextGateway {
 		return found.toPacket(new Scope(caller.projectId(), Scope.View.RESOLVE_ENTITY, null, null, null), caller);
 	}
 
-	/** 이름 카드: 인물·기관 한 명과 언어별 표기 전부(제안 표기 포함). */
+	/**
+	 * 이름 카드: 인물·기관 한 명과 언어별 표기 전부(제안 표기 포함), 그리고 근거 원문.
+	 * 원문은 이 인물을 언급한 발언(확인됐거나 후보인 MENTIONS 줄)과 표기마다 적힌 근거 발언이다.
+	 * 요청자가 읽을 수 있는 문서의 것만, 최대 MAX_NAME_SOURCES개를 줄이 생긴 순서로 싣는다.
+	 */
 	@Transactional(readOnly = true)
 	public NameCard nameCard(Caller caller, UUID entityId) {
 		authorize(caller);
-		return entity.getNameCard(caller.projectId(), entityId);
+		NameCard card = entity.getNameCard(caller.projectId(), entityId);
+		Set<UUID> spanIds = new LinkedHashSet<>();
+		card.names().stream().map(NameForm::evidenceSpanId).filter(Objects::nonNull).forEach(spanIds::add);
+		for (Edge edge : graph.edgesOf(caller.projectId(), card.entity().ref(), Direction.IMPACT,
+				EnumSet.of(RelType.MENTIONS), USABLE)) {
+			spanIds.add(edge.src().id());
+			spanIds.addAll(edge.evidenceSpanIds());
+		}
+		Collector found = new Collector(caller);
+		Set<UUID> readable = found.readable(spanIds);
+		return card.withSources(spanIds.stream().filter(readable::contains).limit(MAX_NAME_SOURCES)
+				.map(found.spans::get).map(ContextGateway::sourceOf).toList());
 	}
 
 	/**
@@ -348,6 +370,10 @@ public class ContextGateway {
 
 	private static void authorize(Caller caller) {
 		Objects.requireNonNull(caller, "caller");
+	}
+
+	private static Source sourceOf(Span span) {
+		return new Source(span.ref(), span.documentId(), span.seq(), span.speakerLabel(), span.text());
 	}
 
 	/** 항목마다 지금 유효한 사건. 결정됨이면 하나, 경합이면 겹치는 사건들이다. */
@@ -601,6 +627,10 @@ public class ContextGateway {
 					open.add(OpenIssue.ofNode(OpenIssue.Kind.CONTESTED_DECISION, view.ref()));
 				}
 			}
+			// 기대는 것이 바뀌어 사람이 다시 봐야 하는 카드
+			Set<NodeKey> recheck = rechecks.openOf(projectId, cards.keySet()).keySet();
+			cards.values().stream().filter(view -> recheck.contains(view.ref().key()))
+					.forEach(view -> open.add(OpenIssue.ofNode(OpenIssue.Kind.NEEDS_RECHECK, view.ref())));
 			log.debug("context {} project={} caller={}:{} facts={} relations={} open={}", scope.view(), projectId,
 					caller.kind(), caller.id(), facts.size(), relations.size(), open.size());
 			facts.forEach(fact -> fact.evidence().forEach(ref -> cited.add(ref.span().id())));
@@ -611,8 +641,7 @@ public class ContextGateway {
 							.thenComparingInt(Span::seq);
 			List<Source> sources = cited.stream().map(spans::get)
 					.sorted(order)
-					.map(span -> new Source(span.ref(), span.documentId(), span.seq(), span.speakerLabel(),
-							span.text()))
+					.map(ContextGateway::sourceOf)
 					.toList();
 			return new ContextPacket(Instant.now(), scope, facts, new ArrayList<>(relations.values()),
 					new ArrayList<>(open), sources);

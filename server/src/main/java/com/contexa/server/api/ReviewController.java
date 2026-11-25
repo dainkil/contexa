@@ -13,12 +13,15 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.contexa.server.contract.Caller;
+import com.contexa.server.contract.NodeKey;
 import com.contexa.server.contract.NodeRef;
 import com.contexa.server.contract.NodeType;
 import com.contexa.server.decision.TaskStatus;
 import com.contexa.server.identity.IdentityAccess;
 import com.contexa.server.review.Changed;
 import com.contexa.server.review.Impact;
+import com.contexa.server.review.RecheckPage;
+import com.contexa.server.review.RecheckResolved;
 import com.contexa.server.review.ReviewAction;
 import com.contexa.server.review.ReviewFilter;
 import com.contexa.server.review.ReviewImpact;
@@ -109,6 +112,19 @@ public class ReviewController {
 	@PostMapping("/spans/{spanId}/revisions")
 	public Changed reviseSpan(Caller caller, @PathVariable UUID spanId, @RequestBody ReviseSpanRequest request) {
 		return review.reviseSpan(caller, spanId, request.expectedRevision(), request.text());
+	}
+
+	/** 검토함 "다시 확인": 기대는 것이 바뀌어 다시 봐야 하는 카드와 그 이유. 다음 쪽은 next를 after로 보낸다. */
+	@GetMapping("/rechecks")
+	public RecheckPage rechecks(Caller caller, @RequestParam(required = false) Integer limit,
+			@RequestParam(required = false) String after) {
+		return review.listRechecks(caller, limit, after);
+	}
+
+	/** 다시 봤고 바뀐 것이 없다고 닫는다. 고치거나 철회하려면 그 카드의 검토 묶음을 처리한다. */
+	@PostMapping("/rechecks/{type}/{id}/resolve")
+	public RecheckResolved resolveRecheck(Caller caller, @PathVariable NodeType type, @PathVariable UUID id) {
+		return review.resolveRecheck(caller, new NodeKey(type, id));
 	}
 
 	/** 이 카드가 바뀌면 다시 확인해야 하는 카드들. */

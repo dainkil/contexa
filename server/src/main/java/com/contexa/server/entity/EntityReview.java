@@ -148,15 +148,35 @@ public class EntityReview {
 	public NameCard getNameCard(UUID projectId, UUID entityId) {
 		NodeView entity = getNodes(projectId, List.of(new NodeRef(NodeType.ENTITY, entityId, 1))).stream()
 				.findFirst().orElseThrow(() -> new EntityNotFoundException(entityId));
-		List<NameForm> names = jdbc.sql("""
-				select lang, form, status, evidence_span_id from entity_name
-				 where entity_id = :id order by lang, created_at, form
+		return new NameCard(entity, namesOf(projectId, List.of(entityId)).getOrDefault(entityId, List.of()));
+	}
+
+	/**
+	 * 여러 인물·기관의 언어별 표기 전부(제안·확인·거절)를 한 번에 읽는다. 언어, 넣은 순서로 정렬한다.
+	 * 이 프로젝트에 없는 카드와 표기가 없는 카드는 결과에 없다.
+	 */
+	@Transactional(readOnly = true)
+	public Map<UUID, List<NameForm>> namesOf(UUID projectId, Collection<UUID> entityIds) {
+		Objects.requireNonNull(projectId, "projectId");
+		if (entityIds == null || entityIds.isEmpty()) {
+			return Map.of();
+		}
+		Map<UUID, List<NameForm>> names = new LinkedHashMap<>();
+		jdbc.sql("""
+				select n.entity_id, n.lang, n.form, n.status, n.evidence_span_id
+				  from entity_name n join entity e on e.id = n.entity_id
+				 where e.project_id = :projectId and n.entity_id in (:ids)
+				 order by n.lang, n.created_at, n.form
 				""")
-				.param("id", entityId)
-				.query((rs, n) -> new NameForm(rs.getString("lang"), rs.getString("form"), rs.getString("status"),
-						rs.getObject("evidence_span_id", UUID.class)))
+				.param("projectId", projectId).param("ids", entityIds)
+				.query((rs, n) -> {
+					names.computeIfAbsent(rs.getObject("entity_id", UUID.class), id -> new ArrayList<>())
+							.add(new NameForm(rs.getString("lang"), rs.getString("form"), rs.getString("status"),
+									rs.getObject("evidence_span_id", UUID.class)));
+					return null;
+				})
 				.list();
-		return new NameCard(entity, names);
+		return names;
 	}
 
 	/**

@@ -139,4 +139,34 @@ class ReviewApiTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$[*].affected.id", hasItem(budget)));
 	}
+
+	@Test
+	void 발언을_고치면_기대던_확인된_카드가_다시_확인에_나오고_바뀐_것_없음으로_닫는다() throws Exception {
+		String budget = JsonPath.read(seeded, "$.nodes.budget.id");
+		String span = JsonPath.read(seeded, "$.nodes.span22.id");
+
+		mvc.perform(post(base + "/spans/" + span + "/revisions").contentType(MediaType.APPLICATION_JSON)
+				.content("{\"expectedRevision\":1,\"text\":\"인쇄 예산은 다음 주에 승인됩니다.\"}"))
+				.andExpect(status().isOk());
+
+		mvc.perform(get(base + "/rechecks"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.items[*].review.card.label", hasItem("인쇄 예산 승인")))
+				.andExpect(jsonPath("$.items[?(@.review.card.label == '인쇄 예산 승인')].causes[0].reason")
+						.value("SPAN_REVISION"))
+				.andExpect(jsonPath("$.items[?(@.review.card.label == '인쇄 예산 승인')].causes[0].label")
+						.value("인쇄 예산은 다음 주에 승인됩니다."));
+		mvc.perform(get(base + "/context/trace").param("type", "CONDITION").param("id", budget).param("depth", "1"))
+				.andExpect(jsonPath("$.open[?(@.kind == 'NEEDS_RECHECK')].node.id", hasItem(budget)));
+
+		mvc.perform(post(base + "/rechecks/CONDITION/" + budget + "/resolve"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.resolved").value(1));
+		mvc.perform(post(base + "/rechecks/CONDITION/" + budget + "/resolve"))
+				.andExpect(status().isConflict());
+		mvc.perform(get(base + "/rechecks"))
+				.andExpect(jsonPath("$.items[*].review.card.label", not(hasItem("인쇄 예산 승인"))));
+		mvc.perform(post(base + "/rechecks/CONDITION/" + UUID.randomUUID() + "/resolve"))
+				.andExpect(status().isNotFound());
+	}
 }

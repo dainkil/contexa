@@ -2,6 +2,7 @@ package com.contexa.server.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import java.util.HashMap;
 import java.util.List;
@@ -28,12 +29,14 @@ import com.contexa.server.contract.OpenIssue;
 import com.contexa.server.contract.RelType;
 import com.contexa.server.contract.ReviewStatus;
 import com.contexa.server.contract.Scope;
+import com.contexa.server.contract.Source;
 import com.contexa.server.document.DocumentEvidence;
 import com.contexa.server.gateway.ContextGateway;
 import com.contexa.server.gateway.TaskFilter;
 import com.contexa.server.identity.IdentityAccess;
 import com.contexa.server.identity.NotAllowedException;
 import com.contexa.server.identity.Role;
+import com.contexa.server.identity.Visibility;
 import com.contexa.server.review.ReviewAction;
 import com.contexa.server.review.ReviewFilter;
 import com.contexa.server.review.ReviewImpact;
@@ -151,6 +154,44 @@ class EntityFlowTest {
 
 		review.rejectName(reviewer, ahmed, "ko", "아흐마드 하산");
 		assertThat(entity.findCandidates(projectId, "아흐마드 하산", "ko")).isEmpty();
+	}
+
+	// ---- 이름 검수: 검토 묶음과 이름 카드에 표기와 원문이 실린다 ----
+
+	@Test
+	void 인물_묶음에는_언어별_제안_표기와_그_인물을_언급한_발언이_실린다() {
+		ReviewItem ahmed = item("Ahmed Hassan");
+
+		assertThat(ahmed.names()).extracting(NameForm::lang, NameForm::form, NameForm::status)
+				.containsExactly(tuple("ar", "أحمد حسن", "CANDIDATE"), tuple("ko", "아흐마드 하산", "CANDIDATE"));
+		assertThat(ahmed.sources()).extracting(Source::text).containsExactly("아랍어 문구는 아흐마드 씨가 봐 주세요.");
+		// 다른 종류의 묶음에는 표기가 없다
+		assertThat(item("아랍어 문구 검토").names()).isEmpty();
+
+		review.confirmName(reviewer, ahmed.owner().id(), "ar", "أحمد حسن", span.id());
+		review.rejectName(reviewer, ahmed.owner().id(), "ko", "아흐마드 하산");
+		assertThat(item("Ahmed Hassan").names()).extracting(NameForm::lang, NameForm::status)
+				.containsExactly(tuple("ar", "CONFIRMED"), tuple("ko", "REJECTED"));
+	}
+
+	@Test
+	void 언급한_발언은_읽을_수_있는_것만_이름_카드와_검토_묶음에_실린다() {
+		Caller member = Fixtures.newMember(identity, reviewer, Role.REVIEWER);
+		NodeRef memo = Fixtures.document(document, reviewer, Visibility.PRIVATE, false, "아흐마드 하산 씨 연락처 메모").get(0);
+		Caller aiJob = new Caller(Caller.Kind.JOB, UUID.randomUUID(), projectId, reviewer.id(),
+				Caller.Audience.INTERNAL);
+		review.submitCandidates(aiJob, new GraphCandidates(List.of(), List.of(
+				EdgeDraft.existing(RelType.MENTIONS, memo, saved.get("Ahmed Hassan"), List.of(memo.id())))));
+		UUID ahmed = saved.get("Ahmed Hassan").id();
+
+		assertThat(gateway.nameCard(reviewer, ahmed).sources()).extracting(Source::text)
+				.containsExactly("아랍어 문구는 아흐마드 씨가 봐 주세요.", "아흐마드 하산 씨 연락처 메모");
+		assertThat(gateway.nameCard(member, ahmed).sources()).extracting(Source::text)
+				.containsExactly("아랍어 문구는 아흐마드 씨가 봐 주세요.");
+		ReviewItem seenByMember = review.listReviews(member, new ReviewFilter(ReviewItem.State.OPEN, NodeType.ENTITY))
+				.items().stream().filter(i -> i.owner().id().equals(ahmed)).findFirst().orElseThrow();
+		assertThat(seenByMember.sources()).extracting(Source::text)
+				.containsExactly("아랍어 문구는 아흐마드 씨가 봐 주세요.");
 	}
 
 	@Test
