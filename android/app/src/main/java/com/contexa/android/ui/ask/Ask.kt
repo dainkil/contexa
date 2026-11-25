@@ -16,7 +16,9 @@ const val MAX_POLLS = 90
 /** 대화에 보여 주는 지난 질문 수의 상한. 최근 것부터 센다. */
 const val MAX_TURNS = 20
 
-const val STILL_WAITING_MESSAGE = "아직 답이 없습니다. AI 일꾼이 켜져 있는지 확인하세요."
+const val STILL_WAITING_MESSAGE = "답이 늦어지고 있습니다. 잠시 뒤에 다시 확인해 주세요."
+
+const val ANSWER_FAILED_MESSAGE = "답을 쓰지 못했습니다. 다시 물어봐 주세요."
 
 /** 보낼 수 없는 질문이면 그 이유. 보낼 수 있으면 null. 빈 칸은 이유 없이 버튼만 막는다. */
 fun questionError(text: String): String? =

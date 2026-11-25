@@ -12,8 +12,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 
@@ -55,5 +61,29 @@ fun KeyValue(key: String, value: String, modifier: Modifier = Modifier) {
 fun BackButton(onClick: () -> Unit) {
     IconButton(onClick = onClick) {
         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+    }
+}
+
+/**
+ * 작게 접어 둔 자세한 내용. 처음에는 "자세히"만 보이고, 누르면 글이 펼쳐진다.
+ * 작업 오류처럼 사용자에게 바로 보여 주기에는 거친 원래 문장을 둘 때 쓴다.
+ */
+@Composable
+fun DetailToggle(detail: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            if (open) "자세히 접기" else "자세히",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.clickable { open = !open }.padding(vertical = 4.dp),
+        )
+        if (open) {
+            Text(
+                detail,
+                style = MaterialTheme.typography.labelLarge.copy(textDirection = TextDirection.Content),
+                color = color,
+            )
+        }
     }
 }

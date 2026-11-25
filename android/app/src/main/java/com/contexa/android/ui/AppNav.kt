@@ -5,11 +5,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -34,7 +38,9 @@ import com.contexa.android.ui.project.ProjectScreen
 import com.contexa.android.ui.projects.ProjectsScreen
 import com.contexa.android.ui.projects.ProjectsViewModel
 import com.contexa.android.ui.projects.roleLabel
+import com.contexa.android.ui.settings.MembersViewModel
 import com.contexa.android.ui.settings.SettingsScreen
+import com.contexa.android.ui.settings.canReview
 import com.contexa.android.ui.settings.SettingsViewModel
 
 /** 세션 상태에 따라 로그인 쪽 화면과 로그인 뒤 화면을 바꿔 보여 준다. */
@@ -91,12 +97,20 @@ private fun MainNav() {
             arguments = listOf(textArg("title"), textArg("role")),
         ) { entry ->
             val projectId = entry.arguments?.getString("projectId").orEmpty()
-            val role = entry.arguments?.getString("role").orEmpty()
+            // 목록에서 연 때의 역할. 그사이 소유자가 바꿨을 수 있으므로 화면이 보일 때마다 구성원 목록으로 다시 읽는다.
+            val members = appViewModel(key = "members") { MembersViewModel(it.authApi, projectId) }
+            val membersState by members.state.collectAsStateWithLifecycle()
+            val owner = LocalLifecycleOwner.current
+            LaunchedEffect(owner, members) {
+                owner.repeatOnLifecycle(Lifecycle.State.STARTED) { members.refresh() }
+            }
+            val role = membersState.myRole?.name ?: entry.arguments?.getString("role").orEmpty()
             ProjectScreen(
                 projectId = projectId,
                 title = entry.arguments?.getString("title").orEmpty(),
-                canReview = canReview(role),
-                roleLabel = Role.entries.find { it.name == role }?.let(::roleLabel),
+                canReview = canReview(roleOf(role)),
+                roleLabel = roleOf(role)?.let(::roleLabel),
+                members = members,
                 onBack = { nav.popBackStack() },
                 onOpenDocument = { documentId, spanId -> nav.navigate(documentRoute(projectId, documentId, role, spanId)) },
                 onOpenHistory = { itemId -> nav.navigate("p/${Uri.encode(projectId)}/h/${Uri.encode(itemId)}?role=$role") },
@@ -113,7 +127,7 @@ private fun MainNav() {
             val viewModel = appViewModel { PersonViewModel(it.contextApi, it.documentApi, projectId, entityId) }
             PersonScreen(
                 viewModel = viewModel,
-                canReview = canReview(role),
+                canReview = canReview(roleOf(role)),
                 onBack = { nav.popBackStack() },
                 onOpenSource = { source -> nav.navigate(documentRoute(projectId, source.documentId, role, source.span.id)) },
                 onOpenPerson = { other -> nav.navigate(personRoute(projectId, other, role)) },
@@ -169,7 +183,7 @@ private fun MainNav() {
             val viewModel = appViewModel { DocumentViewerViewModel(it.documentApi, it.contextApi, projectId, documentId, span) }
             DocumentViewerScreen(
                 viewModel = viewModel,
-                canRevise = canReview(role),
+                canRevise = canReview(roleOf(role)),
                 onBack = { nav.popBackStack() },
             )
         }
@@ -185,8 +199,8 @@ private fun documentRoute(projectId: String, documentId: String, role: String, s
 private fun personRoute(projectId: String, entityId: String, role: String): String =
     "p/${Uri.encode(projectId)}/e/${Uri.encode(entityId)}?role=$role"
 
-/** 확인·정정은 소유자·검토자만 한다(server도 같은 규칙으로 막는다). */
-private fun canReview(role: String) = role == Role.OWNER.name || role == Role.REVIEWER.name
+/** 주소에 실린 역할 이름. 모르는 값이면 null(확인·정정 버튼을 숨긴다. server도 같은 규칙으로 막는다). */
+private fun roleOf(name: String): Role? = Role.entries.find { it.name == name }
 
 /** 주소 뒤에 붙는 선택 값. 없으면 빈 글자. */
 private fun textArg(name: String) = navArgument(name) {

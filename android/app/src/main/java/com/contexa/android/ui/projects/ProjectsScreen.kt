@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -37,7 +38,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.contexa.android.api.ProjectSummary
 import com.contexa.android.ui.components.PrimaryButton
 
@@ -46,6 +50,12 @@ import com.contexa.android.ui.components.PrimaryButton
 fun ProjectsScreen(viewModel: ProjectsViewModel, onOpen: (ProjectSummary) -> Unit, onOpenSettings: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var title by rememberSaveable { mutableStateOf("") }
+
+    // 화면이 보일 때마다 새로 읽는다. 프로젝트에서 돌아왔거나 그사이 다른 사람이 나를 넣었을 수 있다.
+    val owner = LocalLifecycleOwner.current
+    LaunchedEffect(owner, viewModel) {
+        owner.repeatOnLifecycle(Lifecycle.State.STARTED) { viewModel.load() }
+    }
     val submit = {
         viewModel.create(title) {
             title = ""
@@ -71,30 +81,33 @@ fun ProjectsScreen(viewModel: ProjectsViewModel, onOpen: (ProjectSummary) -> Uni
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // 다시 읽다가 실패해도 이미 받은 목록은 그대로 보여 준다.
+            state.loadError?.let { message ->
+                item {
+                    Column {
+                        Text(message, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = viewModel::load) { Text("다시 불러오기") }
+                    }
+                }
+            }
+
             when {
+                state.projects.isNotEmpty() -> items(state.projects, key = { it.id }) { project ->
+                    ProjectRow(project, onClick = { onOpen(project) })
+                }
+
                 state.loading -> item {
                     Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
                 }
 
-                state.loadError != null -> item {
-                    Column {
-                        Text(state.loadError!!, color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = viewModel::load) { Text("다시 불러오기") }
-                    }
-                }
-
-                state.projects.isEmpty() -> item {
+                state.loadError == null -> item {
                     Text(
                         "아직 속한 프로젝트가 없습니다.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                }
-
-                else -> items(state.projects, key = { it.id }) { project ->
-                    ProjectRow(project, onClick = { onOpen(project) })
                 }
             }
 
@@ -115,7 +128,7 @@ fun ProjectsScreen(viewModel: ProjectsViewModel, onOpen: (ProjectSummary) -> Uni
                         keyboardActions = KeyboardActions(onDone = { submit() }),
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    state.createError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    state.createError?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error) }
                     PrimaryButton("만들기", onClick = submit, enabled = title.isNotBlank(), loading = state.creating, modifier = Modifier.fillMaxWidth())
                 }
             }

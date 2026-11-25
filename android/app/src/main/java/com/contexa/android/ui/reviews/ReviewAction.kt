@@ -56,6 +56,31 @@ fun bundleVerdicts(item: ReviewItem): List<Verdict> {
 /** 줄마다 고를 수 있는 것. 첫 값(null = 따름)이 기본이다. */
 fun edgeChoices(edge: Edge): List<Verdict?> = listOf<Verdict?>(null) + Verdict.entries.filter { canApply(it, edge.status) }
 
+/** 따로 판단할 수 있는 줄. 이미 거절·철회된 줄은 고를 것이 없어 뺀다. */
+fun decidableEdges(item: ReviewItem): List<Edge> = item.edges.filter { edgeChoices(it).size > 1 }
+
+/** "따름"의 이름. 카드가 있으면 카드 판단을, 없으면(발언 묶음) 아래 버튼을 따른다. */
+fun followLabel(item: ReviewItem): String = if (item.card != null) "카드를 따름" else "버튼대로"
+
+/** 줄 하나에 고른 것의 이름. */
+fun edgeChoiceLabel(choice: Verdict?, follow: String): String = if (choice == null) follow else "이 줄만 ${verdictLabel(choice)}"
+
+const val CONFIRM_SWEEP_NOTE = "확인하면 따로 고르지 않은 후보 줄도 함께 확인됩니다. 틀린 줄은 줄마다 '이 줄만 거절'을 고르세요."
+
+/**
+ * "확인"을 누르면 따로 고르지 않은 후보 줄까지 함께 확인되는가(server ReviewImpact.followCard).
+ * 그렇다면 버튼 위에 알려서, 틀린 줄을 모르고 확인하지 않게 한다.
+ */
+fun confirmSweepsEdges(item: ReviewItem, choices: Map<String, Verdict>): Boolean =
+    Verdict.CONFIRM in bundleVerdicts(item) &&
+        item.edges.any { isPending(it.status) && choices[it.id] == null }
+
+/** 검토하면서 카드 값을 고칠 수 있는가. 거절·철회된 카드는 고치지 않는다. */
+fun canCorrect(item: ReviewItem): Boolean {
+    val card = item.card ?: return false
+    return fieldsOf(card.ref.type).isNotEmpty() && (isPending(card.status) || card.status == ReviewStatus.CONFIRMED)
+}
+
 /**
  * 판단 요청을 만든다. 보낼 것이 없으면 null.
  *

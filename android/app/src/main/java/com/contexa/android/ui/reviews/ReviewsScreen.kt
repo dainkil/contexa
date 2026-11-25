@@ -96,10 +96,13 @@ fun ReviewsScreen(
             state.items.isNotEmpty() -> items(state.items, key = { it.id }) { item ->
                 ReviewCard(
                     item = item,
+                    draft = state.drafts[draftKey(item)] ?: ReviewDraft(),
                     canReview = canReview,
                     busy = state.busyId == item.id,
                     documentTitles = state.documentTitles,
-                    onAct = { verdict -> viewModel.act(item, verdict) },
+                    onChoose = { edgeId, verdict -> viewModel.choose(item, edgeId, verdict) },
+                    onEdit = { values -> viewModel.editValues(item, values) },
+                    onAct = { verdict, corrections -> viewModel.act(item, verdict, corrections) },
                     onOpenSource = onOpenSource,
                     onOpenPerson = onOpenPerson,
                     recheck = state.causes[item.id]?.takeIf { state.tab == ReviewTab.RECHECK },

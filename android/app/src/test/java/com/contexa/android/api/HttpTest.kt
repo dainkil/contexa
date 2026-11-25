@@ -81,14 +81,14 @@ class HttpTest {
     }
 
     @Test
-    fun `토큰 없이 받은 401은 로그아웃으로 보지 않고 server 문장을 보여 준다`() = runBlocking {
-        server.enqueue(json(401, """{"error":"UNAUTHENTICATED","message":"이메일 또는 비밀번호가 틀렸다"}"""))
+    fun `토큰 없이 받은 401은 로그아웃으로 보지 않고 사용자 문장으로 보여 준다`() = runBlocking {
+        server.enqueue(json(401, """{"error":"UNAUTHENTICATED","message":"이메일 또는 비밀번호가 맞지 않는다"}"""))
 
         try {
             api().login(LoginRequest("kim@example.com", "wrong"))
             fail("401이면 예외가 나야 한다")
         } catch (e: HttpException) {
-            assertEquals("이메일 또는 비밀번호가 틀렸다", userMessage(e))
+            assertEquals("이메일 또는 비밀번호가 맞지 않습니다.", userMessage(e))
             assertFalse(isStale(e))
         }
         assertEquals(0, unauthorized)
@@ -112,7 +112,7 @@ class HttpTest {
     fun `server 형식이 아닌 오류와 연결 실패는 일반 문장으로 보여 준다`() {
         assertEquals(GENERIC_ERROR_MESSAGE, messageForErrorBody("<html>502</html>"))
         assertEquals(GENERIC_ERROR_MESSAGE, messageForErrorBody(null))
-        assertEquals(GENERIC_ERROR_MESSAGE, messageForErrorBody("""{"error":"BAD_REQUEST","message":""}"""))
+        assertEquals("입력한 내용을 다시 확인해 주세요.", messageForErrorBody("""{"error":"BAD_REQUEST","message":""}"""))
         assertEquals(NETWORK_ERROR_MESSAGE, userMessage(IOException("connection refused")))
         assertEquals(GENERIC_ERROR_MESSAGE, userMessage(IllegalStateException()))
     }

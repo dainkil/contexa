@@ -53,9 +53,15 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
  * 설정 내용: 위에 내 프로필, 그 아래 구역별로 나눈 줄 목록.
  *
  * @param role 프로젝트 안에서 열었을 때 그 프로젝트에서의 내 역할(소유자·검토자·구성원). 밖에서는 null.
+ * @param projectSection 프로젝트 안에서 열었을 때 내 정보와 계정 사이에 넣을 구역(구성원). 밖에서는 null.
  */
 @Composable
-fun SettingsContent(viewModel: SettingsViewModel, modifier: Modifier = Modifier, role: String? = null) {
+fun SettingsContent(
+    viewModel: SettingsViewModel,
+    modifier: Modifier = Modifier,
+    role: String? = null,
+    projectSection: (@Composable () -> Unit)? = null,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var confirming by remember { mutableStateOf(false) }
     val name = state.name ?: state.email.substringBefore('@')
@@ -109,10 +115,17 @@ fun SettingsContent(viewModel: SettingsViewModel, modifier: Modifier = Modifier,
             )
         }
 
+        projectSection?.invoke()
+
         Band()
         GroupLabel("계정")
-        ActionRow("다른 계정으로 로그인", onClick = viewModel::signOut)
-        ActionRow("로그아웃", onClick = { confirming = true }, color = MaterialTheme.colorScheme.error)
+        ActionRow("다른 계정으로 로그인", onClick = viewModel::signOut, enabled = !state.signingOut)
+        ActionRow(
+            if (state.signingOut) "로그아웃하는 중…" else "로그아웃",
+            onClick = { confirming = true },
+            color = MaterialTheme.colorScheme.error,
+            enabled = !state.signingOut,
+        )
     }
 
     if (confirming) {
@@ -133,12 +146,12 @@ fun SettingsContent(viewModel: SettingsViewModel, modifier: Modifier = Modifier,
 
 /** 구역 사이의 굵은 회색 띠. */
 @Composable
-private fun Band() {
+internal fun Band() {
     Spacer(Modifier.fillMaxWidth().height(8.dp).background(MaterialTheme.colorScheme.surfaceContainerLow))
 }
 
 @Composable
-private fun GroupLabel(text: String) {
+internal fun GroupLabel(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.labelLarge,
@@ -165,11 +178,17 @@ private fun InfoRow(label: String, value: String) {
 }
 
 @Composable
-private fun ActionRow(label: String, onClick: () -> Unit, color: Color = MaterialTheme.colorScheme.onSurface) {
+private fun ActionRow(
+    label: String,
+    onClick: () -> Unit,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    enabled: Boolean = true,
+) {
     Text(
         label,
         style = MaterialTheme.typography.bodyLarge,
-        color = color,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        color = if (enabled) color else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
     )
 }

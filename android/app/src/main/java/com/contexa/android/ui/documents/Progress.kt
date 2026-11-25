@@ -1,6 +1,7 @@
 package com.contexa.android.ui.documents
 
 import com.contexa.android.api.DocumentKind
+import com.contexa.android.api.DocumentStatus
 import com.contexa.android.api.Impact
 import com.contexa.android.api.JobBrief
 import com.contexa.android.api.JobStatus
@@ -17,7 +18,7 @@ import java.util.Locale
  *   parse(발언으로 자르기, 규칙) → extract(카드·줄 후보 뽑기, 모델) → 검토함
  */
 enum class Stage {
-    /** 자르기 작업이 일꾼을 기다린다 */
+    /** 자르기 작업이 처리 순서를 기다린다 */
     QUEUED,
     PARSING,
 
@@ -86,8 +87,41 @@ fun retryableJob(progress: Progress): JobBrief? =
 /** 진행 중인 작업이 있으면 이 간격(ms)으로 다시 불러온다. */
 const val POLL_MS = 2000L
 
-/** 일꾼이 이보다 오래 작업을 가져가지 않으면 일꾼이 켜져 있는지 확인하라고 안내한다. */
+/** 작업이 이보다 오래 시작되지 않으면 늦어지고 있다고 안내한다. */
 const val STALE_QUEUE_MS = 30_000L
+
+const val QUEUE_DELAY_MESSAGE = "처리를 기다리는 작업이 많아 시작이 늦어지고 있습니다. 잠시 뒤에 다시 확인해 주세요."
+
+const val ANALYSIS_FAILED_MESSAGE = "분석을 끝내지 못했습니다. 문서 내용은 그대로 남아 있습니다. 다시 시도해 보세요."
+
+/** 실패한 작업의 자세한 내용(시도 횟수와 원래 오류 문장). "자세히"를 눌러야 보인다. */
+fun failureDetail(job: JobBrief): String? {
+    val tried = if (job.attempts > 0) "${job.attempts}번 시도함" else null
+    return listOfNotNull(tried, job.lastError?.takeIf { it.isNotBlank() }).joinToString("\n").ifEmpty { null }
+}
+
+// 뽑힌 후보가 없거나 모두 이미 있는 카드에 합쳐졌을 수도 있으므로 "후보가 생겼다"고 단정하지 않는다
+const val ANALYSIS_DONE_MESSAGE = "분석이 끝났습니다. 검토함에서 결과를 확인하세요."
+
+/**
+ * 자료함이 지켜보는 문서.
+ *
+ * @param watching 아직 처리 중이어서 다음에 끝났는지 볼 문서 id
+ * @param finished 지켜보던 문서 중 이번에 후보를 검토함에 넣은 것이 있나
+ */
+data class AnalysisWatch(val watching: Set<String>, val finished: Boolean)
+
+/**
+ * 새로 불러온 목록으로 지켜볼 문서를 갱신한다. 처음 열었을 때 이미 끝나 있던 문서는 알리지 않는다.
+ * 실패·취소로 끝난 문서는 알리지 않는다(자료함에 그대로 표시된다).
+ * 목록에 아직 없는 문서(방금 올려 목록이 따라오지 못한 것)는 계속 지켜본다.
+ */
+fun finishedAnalysis(watching: Set<String>, documents: List<DocumentStatus>): AnalysisWatch {
+    val finished = documents.any { it.document.id in watching && progressOf(it.latest).stage == Stage.READY }
+    val listed = documents.map { it.document.id }.toSet()
+    val active = documents.filter { isActive(it.latest) }.map { it.document.id }.toSet()
+    return AnalysisWatch(active + (watching - listed), finished)
+}
 
 /** 기다리는 작업이 오래 방치됐나. 실행 중이거나 끝난 작업은 해당하지 않는다. */
 fun waitingTooLong(progress: Progress, nowMillis: Long): Boolean {

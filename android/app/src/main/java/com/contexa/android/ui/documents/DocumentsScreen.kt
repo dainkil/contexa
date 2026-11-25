@@ -32,10 +32,26 @@ import com.contexa.android.api.DocumentStatus
 import com.contexa.android.ui.components.PrimaryButton
 import com.contexa.android.ui.components.ScreenTitle
 
-/** 자료함 탭: 올린 문서와 가장 최근 판의 처리 상태. 처리 중이면 저절로 갱신된다. */
+/**
+ * 자료함 탭: 올린 문서와 가장 최근 판의 처리 상태. 처리 중이면 저절로 갱신된다.
+ *
+ * @param onAnalysisDone 지켜보던 문서의 분석이 끝났을 때 한 번 부른다(검토함으로 안내한다)
+ */
 @Composable
-fun DocumentsScreen(viewModel: DocumentsViewModel, onOpen: (documentId: String) -> Unit, modifier: Modifier = Modifier) {
+fun DocumentsScreen(
+    viewModel: DocumentsViewModel,
+    onOpen: (documentId: String) -> Unit,
+    modifier: Modifier = Modifier,
+    onAnalysisDone: () -> Unit = {},
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+
+    LaunchedEffect(state.analysisDone) {
+        if (state.analysisDone) {
+            viewModel.analysisNoticeShown()
+            onAnalysisDone()
+        }
+    }
 
     // 화면이 보이는 동안에만 불러온다. 다른 화면에서 돌아오면 다시 시작한다.
     val owner = LocalLifecycleOwner.current

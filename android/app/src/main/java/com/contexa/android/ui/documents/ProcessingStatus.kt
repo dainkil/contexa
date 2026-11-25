@@ -15,9 +15,9 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import com.contexa.android.api.VersionStatus
+import com.contexa.android.ui.components.DetailToggle
 import com.contexa.android.ui.components.PrimaryButton
 import kotlinx.coroutines.delay
 
@@ -43,7 +43,7 @@ private fun rememberNow(enabled: Boolean, intervalMs: Long = 5000): Long {
 
 /**
  * 원문 뷰어 위쪽의 처리 상태. 처리가 끝난 문서에는 아무것도 그리지 않는다.
- * 실패하면 시도 횟수와 오류 문장, 다시 시도 버튼을, 오래 기다리면 일꾼을 확인하라는 안내를 보여 준다.
+ * 실패하면 안내와 다시 시도 버튼을(원래 오류 문장은 "자세히" 안에), 오래 기다리면 늦어진다는 안내를 보여 준다.
  *
  * @param onRetry 실패한 작업을 다시 맡긴다. 누를 수 있는지는 server가 정한다(시킨 사람이나 OWNER). 아니면 retryError에 이유가 온다
  */
@@ -69,25 +69,18 @@ fun ProcessingNotice(
         }
         if (waitingTooLong(progress, now)) {
             Text(
-                "30초 넘게 처리를 시작하지 않았습니다. AI 일꾼이 켜져 있는지 확인하세요.",
+                QUEUE_DELAY_MESSAGE,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (progress.stage == Stage.FAILED && job != null) {
             Text(
-                "${job.attempts}번 시도했지만 끝내지 못했습니다. 문서 내용은 그대로 남아 있습니다.",
+                ANALYSIS_FAILED_MESSAGE,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.error,
             )
-            job.lastError?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 4,
-                )
-            }
+            failureDetail(job)?.let { DetailToggle(it) }
             if (retryableJob(progress) != null) {
                 PrimaryButton("다시 시도", onClick = onRetry, loading = retrying, modifier = Modifier.padding(top = 4.dp))
             }

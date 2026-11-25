@@ -22,6 +22,8 @@ data class DocumentsUiState(
     val formErrors: UploadFormErrors = UploadFormErrors(),
     val uploading: Boolean = false,
     val uploadError: String? = null,
+    /** 지켜보던 문서의 분석이 끝났다. 화면이 알린 뒤 analysisNoticeShown()으로 내린다. */
+    val analysisDone: Boolean = false,
 )
 
 /** 자료함: 올린 문서와 가장 최근 판의 처리 상태. */
@@ -31,6 +33,9 @@ class DocumentsViewModel(private val api: DocumentApi, private val projectId: St
     val state: StateFlow<DocumentsUiState> = _state
 
     private val reloads = MutableStateFlow(0)
+
+    /** 처리 중이던 문서. 다음에 불러왔을 때 끝났으면 알린다. */
+    private var watching: Set<String> = emptySet()
 
     /**
      * 목록을 불러오고, 처리 중인 문서가 있는 동안 POLL_MS마다 다시 불러온다. 모두 끝나면 reload()를 기다린다.
@@ -50,13 +55,21 @@ class DocumentsViewModel(private val api: DocumentApi, private val projectId: St
 
     private suspend fun loadOnce(): Boolean = try {
         val documents = api.list(projectId)
-        _state.update { it.copy(loading = false, documents = documents, loadError = null) }
+        val watch = finishedAnalysis(watching, documents)
+        watching = watch.watching
+        _state.update {
+            it.copy(loading = false, documents = documents, loadError = null, analysisDone = it.analysisDone || watch.finished)
+        }
         true
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         _state.update { it.copy(loading = false, loadError = userMessage(e)) }
         false
+    }
+
+    fun analysisNoticeShown() {
+        _state.update { it.copy(analysisDone = false) }
     }
 
     fun openForm() {
@@ -93,6 +106,8 @@ class DocumentsViewModel(private val api: DocumentApi, private val projectId: St
         viewModelScope.launch {
             try {
                 val started = api.upload(projectId, toDocumentInput(form))
+                // 원문 뷰어에 갔다 돌아왔을 때 이미 끝났어도 알릴 수 있게 바로 지켜본다.
+                watching = watching + started.version.documentId
                 _state.update { it.copy(uploading = false, form = null) }
                 onUploaded(started.version.documentId)
             } catch (e: CancellationException) {

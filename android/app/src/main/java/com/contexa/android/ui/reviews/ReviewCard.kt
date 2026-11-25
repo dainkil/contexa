@@ -1,26 +1,38 @@
 package com.contexa.android.ui.reviews
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
+import com.contexa.android.api.Edge
 import com.contexa.android.api.NameForm
 import com.contexa.android.api.NodeType
 import com.contexa.android.api.NodeView
@@ -30,6 +42,7 @@ import com.contexa.android.api.ReviewItem
 import com.contexa.android.api.ReviewStatus
 import com.contexa.android.api.Source
 import com.contexa.android.api.Verdict
+import com.contexa.android.ui.components.ChoiceChip
 import com.contexa.android.ui.components.KeyValue
 import com.contexa.android.ui.components.PrimaryButton
 import com.contexa.android.ui.components.SecondaryButton
@@ -38,6 +51,10 @@ import com.contexa.android.ui.components.SourceQuote
 import com.contexa.android.ui.components.Tag
 import com.contexa.android.ui.context.nameGroups
 import com.contexa.android.ui.context.nameStatusLabel
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import kotlinx.serialization.json.JsonElement
 
 /** 카드 자체의 값을 "이름 → 값"으로. 기한이 없으면 지어내지 않고 "미정"으로 둔다. */
 fun cardFacts(card: NodeView): List<Pair<String, String>> {
@@ -86,21 +103,47 @@ fun cardLinks(item: ReviewItem): CardLinks {
 }
 
 /**
- * 검토 묶음 한 장: 제목, 내용, 근거, 선행요건, 판단 버튼.
+ * 줄 하나를 사람이 읽는 말로: 관계 이름과 건너편 이름.
+ * 건너편이 발언이면 "문서 제목 N번 발언", 카드이면 "종류 “이름”". 읽을 수 없으면 그렇다고 적는다.
+ */
+fun edgeTarget(edge: Edge, item: ReviewItem, documentTitles: Map<String, String>): Pair<String, String> {
+    val ownerIsSrc = edge.src.id == item.owner.id
+    val far = if (ownerIsSrc) edge.dst else edge.src
+    val name = if (far.type == NodeType.SPAN) {
+        item.sources.find { it.span.id == far.id }
+            ?.let { "${documentTitles[it.documentId] ?: "문서"} ${it.seq}번 발언" }
+            ?: "읽을 수 없는 발언"
+    } else {
+        item.related.find { it.ref.id == far.id }?.let { "${typeLabel(far.type)} “${it.label}”" }
+            ?: "볼 수 없는 ${typeLabel(far.type)}"
+    }
+    return relationLabel(edge.rel, ownerIsSrc) to name
+}
+
+/**
+ * 검토 묶음 한 장: 제목, 내용, 근거, 선행요건, 줄마다 판단, 고치기, 판단 버튼.
  *
+ * @param draft     이 묶음에서 고르던 것(줄마다 판단, 고치는 값)
  * @param canReview 소유자·검토자만 판단할 수 있다. 구성원은 보기만 한다.
  * @param busy      이 묶음의 판단을 보내는 중
+ * @param onChoose  줄 하나를 따로 판단한다(null = 따름)
+ * @param onEdit    고치는 값을 바꾼다(null = 고치기를 그만둔다)
+ * @param onAct     판단을 보낸다(verdict null = 고른 줄만 반영하거나 고친 내용만 저장)
  * @param onOpenPerson 인물·기관 묶음에서 이름 확인 화면을 연다(언어별 표기 확인·거절, 겹치는 인물)
  * @param recheck   다시 확인 탭이면 다시 봐야 하는 이유. 아니면 null
  * @param onKeep    다시 봤고 바뀐 것이 없다고 닫는다(검토자만)
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReviewCard(
     item: ReviewItem,
+    draft: ReviewDraft,
     canReview: Boolean,
     busy: Boolean,
     documentTitles: Map<String, String>,
-    onAct: (Verdict) -> Unit,
+    onChoose: (edgeId: String, verdict: Verdict?) -> Unit,
+    onEdit: (Map<String, String>?) -> Unit,
+    onAct: (verdict: Verdict?, corrections: Map<String, JsonElement>) -> Unit,
     onOpenSource: (Source) -> Unit,
     onOpenPerson: (entityId: String) -> Unit = {},
     recheck: List<RecheckCause>? = null,
@@ -110,6 +153,10 @@ fun ReviewCard(
     val links = remember(item) { cardLinks(item) }
     val facts = (card?.let(::cardFacts).orEmpty()) + links.facts
     val verdicts = if (canReview) bundleVerdicts(item) else emptyList()
+    val decidable = if (verdicts.isNotEmpty()) decidableEdges(item) else emptyList()
+    val editable = canReview && canCorrect(item)
+    // 줄마다 정하기는 접어 둔다. 이미 고른 줄이 있으면 펼친다.
+    var showEdges by rememberSaveable(item.id) { mutableStateOf(false) }
     var confirming by remember { mutableStateOf<Verdict?>(null) }
     // 카드가 없는 묶음은 발언 하나가 주인이다. 그 발언을 제목으로 쓴다.
     val ownerSource = if (card == null) item.sources.find { it.span.id == item.owner.id } else null
@@ -175,21 +222,76 @@ fun ReviewCard(
                 }
             }
 
-            val keep = recheck != null && canReview
-            if (verdicts.isNotEmpty() || keep) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (keep) PrimaryButton("바뀐 것 없음", onClick = onKeep, loading = busy, modifier = Modifier.weight(1f))
-                    verdicts.forEach { verdict ->
-                        val label =
-                            if (verdict == Verdict.CONFIRM && card?.status == ReviewStatus.CONFIRMED) "새 연결 확인" else verdictLabel(verdict)
-                        val decide = {
-                            // 거절·철회는 되돌릴 수 없으므로 한 번 더 묻는다.
-                            if (verdict == Verdict.REJECT || verdict == Verdict.RETRACT) confirming = verdict else onAct(verdict)
+            if (decidable.isNotEmpty() && (showEdges || draft.choices.isNotEmpty())) {
+                Section("줄마다 정하기") {
+                    val follow = followLabel(item)
+                    decidable.forEach { edge ->
+                        EdgeRow(
+                            edge = edge,
+                            target = edgeTarget(edge, item, documentTitles),
+                            choices = edgeChoices(edge),
+                            follow = follow,
+                            choice = draft.choices[edge.id],
+                            enabled = !busy,
+                            onChoose = { onChoose(edge.id, it) },
+                        )
+                    }
+                }
+            }
+
+            val values = draft.values
+            if (values != null && card != null && editable) {
+                CorrectionForm(
+                    card = card,
+                    values = values,
+                    onChange = onEdit,
+                    busy = busy,
+                    canConfirm = isPending(card.status),
+                    onSubmit = { verdict -> onAct(verdict, changedFields(card, values)) },
+                    onCancel = { onEdit(null) },
+                )
+            } else {
+                val keep = recheck != null && canReview
+                if (confirmSweepsEdges(item, draft.choices) && verdicts.isNotEmpty()) {
+                    Text(
+                        CONFIRM_SWEEP_NOTE,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (verdicts.isNotEmpty() || keep) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (keep) PrimaryButton("바뀐 것 없음", onClick = onKeep, loading = busy, modifier = Modifier.weight(1f))
+                        verdicts.forEach { verdict ->
+                            val label =
+                                if (verdict == Verdict.CONFIRM && card?.status == ReviewStatus.CONFIRMED) "새 연결 확인" else verdictLabel(verdict)
+                            val decide = {
+                                // 거절·철회는 되돌릴 수 없으므로 한 번 더 묻는다.
+                                if (verdict == Verdict.REJECT || verdict == Verdict.RETRACT) confirming = verdict else onAct(verdict, emptyMap())
+                            }
+                            if (verdict == Verdict.CONFIRM) {
+                                PrimaryButton(label, onClick = decide, loading = busy, modifier = Modifier.weight(1f))
+                            } else {
+                                SecondaryButton(label, onClick = decide, enabled = !busy, modifier = Modifier.weight(1f))
+                            }
                         }
-                        if (verdict == Verdict.CONFIRM) {
-                            PrimaryButton(label, onClick = decide, loading = busy, modifier = Modifier.weight(1f))
-                        } else {
-                            SecondaryButton(label, onClick = decide, enabled = !busy, modifier = Modifier.weight(1f))
+                    }
+                }
+                if (decidable.isNotEmpty() || editable) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (draft.choices.isNotEmpty()) {
+                            SecondaryButton("고른 줄만 반영", onClick = { onAct(null, emptyMap()) }, enabled = !busy)
+                        } else if (decidable.isNotEmpty()) {
+                            TextButton(onClick = { showEdges = !showEdges }, enabled = !busy) {
+                                Text(if (showEdges) "줄마다 정하기 접기" else "줄마다 정하기")
+                            }
+                        }
+                        if (editable && card != null) {
+                            TextButton(onClick = { onEdit(currentValues(card)) }, enabled = !busy) { Text("고치기") }
                         }
                     }
                 }
@@ -207,11 +309,16 @@ fun ReviewCard(
                     style = MaterialTheme.typography.titleMedium,
                 )
             },
-            text = { Text("되돌릴 수 없습니다.", style = MaterialTheme.typography.bodyLarge) },
+            text = {
+                Text(
+                    "되돌릴 수 없습니다. 따로 고르지 않은 줄도 함께 ${verdictLabel(verdict)}됩니다.",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     confirming = null
-                    onAct(verdict)
+                    onAct(verdict, emptyMap())
                 }) { Text(verdictLabel(verdict), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirming = null }) { Text("취소") } },
@@ -265,5 +372,166 @@ private fun NameRow(language: String, form: NameForm) {
             modifier = Modifier.weight(1f),
         )
         Tag(nameStatusLabel(form.status))
+    }
+}
+
+/** 줄 하나: 관계 → 건너편, 지금 상태, 고르기. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EdgeRow(
+    edge: Edge,
+    target: Pair<String, String>,
+    choices: List<Verdict?>,
+    follow: String,
+    choice: Verdict?,
+    enabled: Boolean,
+    onChoose: (Verdict?) -> Unit,
+) {
+    val (relation, name) = target
+    Column(modifier = Modifier.fillMaxWidth()) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(relation, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(name, style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content))
+            Tag(statusLabel(edge.status))
+        }
+        var open by remember { mutableStateOf(false) }
+        Box {
+            TextButton(onClick = { open = true }, enabled = enabled) {
+                Text(
+                    "${edgeChoiceLabel(choice, follow)} ▾",
+                    color = if (choice == Verdict.REJECT || choice == Verdict.RETRACT) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                )
+            }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                choices.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(edgeChoiceLabel(option, follow), style = MaterialTheme.typography.bodyLarge) },
+                        onClick = {
+                            open = false
+                            onChoose(option)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 카드 값을 고치는 칸. 확인 전이면 "고쳐서 확인", 이미 확인된 카드면 "고친 내용만 저장". */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CorrectionForm(
+    card: NodeView,
+    values: Map<String, String>,
+    onChange: (Map<String, String>) -> Unit,
+    busy: Boolean,
+    canConfirm: Boolean,
+    onSubmit: (Verdict?) -> Unit,
+    onCancel: () -> Unit,
+) {
+    val missing = missingFields(card, values)
+    val changed = changedFields(card, values).isNotEmpty()
+
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            fieldsOf(card.ref.type).forEach { spec ->
+                FieldInput(spec, values[spec.name].orEmpty(), enabled = !busy, onChange = { onChange(values + (spec.name to it)) })
+            }
+            if (missing.isNotEmpty()) {
+                Text(
+                    "비울 수 없는 칸: ${missing.joinToString(", ")}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (canConfirm) {
+                    PrimaryButton("고쳐서 확인", onClick = { onSubmit(Verdict.CONFIRM) }, enabled = missing.isEmpty(), loading = busy)
+                    SecondaryButton("고친 내용만 저장", onClick = { onSubmit(null) }, enabled = !busy && missing.isEmpty() && changed)
+                } else {
+                    PrimaryButton("고친 내용만 저장", onClick = { onSubmit(null) }, enabled = missing.isEmpty() && changed, loading = busy)
+                }
+                TextButton(onClick = onCancel, enabled = !busy) { Text("취소") }
+            }
+        }
+    }
+}
+
+/** 칸 하나. 날짜는 고르개로 고르고 "2026-12-05" 글자로 둔다. */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun FieldInput(spec: FieldSpec, value: String, enabled: Boolean, onChange: (String) -> Unit) {
+    when (spec.kind) {
+        FieldKind.TEXT, FieldKind.TEXTAREA -> OutlinedTextField(
+            value = value,
+            onValueChange = onChange,
+            label = { Text(spec.label) },
+            enabled = enabled,
+            singleLine = spec.kind == FieldKind.TEXT,
+            minLines = if (spec.kind == FieldKind.TEXTAREA) 2 else 1,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        FieldKind.SELECT -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(spec.label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                spec.options.forEach { option ->
+                    ChoiceChip(option.label, selected = value == option.value, onClick = { if (enabled) onChange(option.value) })
+                }
+            }
+        }
+
+        FieldKind.DATE -> {
+            var picking by remember { mutableStateOf(false) }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(spec.label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (value.isEmpty()) "정하지 않음" else value,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (value.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    )
+                    TextButton(onClick = { picking = true }, enabled = enabled) { Text("날짜 고르기") }
+                    if (value.isNotEmpty()) TextButton(onClick = { onChange("") }, enabled = enabled) { Text("지우기") }
+                }
+            }
+            if (picking) {
+                // 날짜 고르개는 UTC 자정의 밀리초로 날짜를 주고받는다. 칸의 값은 "2026-12-05" 글자다.
+                val picker = rememberDatePickerState(
+                    initialSelectedDateMillis = value.takeIf { it.isNotEmpty() }
+                        ?.let { LocalDate.parse(it).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() },
+                )
+                DatePickerDialog(
+                    onDismissRequest = { picking = false },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            picker.selectedDateMillis?.let {
+                                onChange(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString())
+                            }
+                            picking = false
+                        }) { Text("고르기") }
+                    },
+                    dismissButton = { TextButton(onClick = { picking = false }) { Text("취소") } },
+                ) {
+                    DatePicker(state = picker)
+                }
+            }
+        }
     }
 }

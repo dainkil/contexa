@@ -42,6 +42,7 @@ import com.contexa.android.api.ArtifactStatus
 import com.contexa.android.api.GenKind
 import com.contexa.android.api.Source
 import com.contexa.android.ui.components.ChoiceChip
+import com.contexa.android.ui.components.DetailToggle
 import com.contexa.android.ui.components.ScreenTitle
 import com.contexa.android.ui.components.Tag
 
@@ -166,11 +167,10 @@ private fun AnswerBubble(turn: ChatTurn, gaveUp: Boolean, onOpenSource: (Source)
                         )
                     }
 
-                    ArtifactStatus.FAILED -> Text(
-                        listOfNotNull("답을 쓰지 못했습니다.", view.failure).joinToString("\n"),
-                        style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                    ArtifactStatus.FAILED -> {
+                        Text(ANSWER_FAILED_MESSAGE, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                        view.failure?.takeIf { it.isNotBlank() }?.let { DetailToggle(it) }
+                    }
 
                     ArtifactStatus.PUBLISHED -> {
                         Text(
