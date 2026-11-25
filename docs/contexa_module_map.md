@@ -220,7 +220,7 @@ record Caller(Kind kind /* USER | JOB | AGENT */, UUID id, UUID projectId,
 record EvidenceRef(NodeRef span, UUID edgeId, ReviewStatus status)        // 근거 발언과 그 "근거다" 줄의 상태
 record Fact(NodeRef node, ReviewStatus status, String label, Map<String,String> states,
             UUID confirmedBy, Instant confirmedAt, List<EvidenceRef> evidence)
-record OpenIssue(Kind kind /* HELD_NODE | HELD_EDGE | CONTESTED_DECISION | UNMET_CONDITION */,
+record OpenIssue(Kind kind /* HELD_NODE | HELD_EDGE | CONTESTED_DECISION | UNMET_CONDITION | AMBIGUOUS_NAME | NEEDS_RECHECK */,
                  NodeRef node, UUID edgeId)
 record Scope(UUID projectId, View view /* TRACE | CURRENT_STATE | DECISION_HISTORY */,
              NodeRef focus, Direction direction, Integer depth)
@@ -354,6 +354,12 @@ recomputeCondition(UUID conditionId) : ConditionState
 onEdgeChanged(Edge e)                                   // 줄 상태를 바꾼 뒤 호출. 걸린 계산 결과를 다시 계산
 changeTaskStatus(UUID taskId, TaskStatus s, UUID actor, long expectedRevision) : NodeRef
 recordAcceptance(UUID taskId, UUID accountId, boolean accepted) : NodeRef
+
+// Rechecks: 다시 확인할 카드의 장부(테이블 recheck, V12). 남기고 닫는 것은 review-impact만 부른다
+Rechecks.mark(UUID projectId, Collection<RecheckMark> marks /* 카드, 바뀐 것, 거리 */, RecheckReason r, UUID actor) : int
+Rechecks.openOf(UUID projectId, Collection<NodeKey> nodes) : Map<NodeKey, List<RecheckCause>>
+Rechecks.listOpen(UUID projectId, int limit, OffsetDateTime afterSince, UUID afterId) : List<OpenRecheck>
+Rechecks.resolve(UUID projectId, NodeKey node, UUID by, RecheckResolution KEPT|REVIEWED) : int
 ```
 - 소유하는 카드는 `TOPIC`, `DECISION_ITEM`, `DECISION_EVENT`, `CONDITION`, `TASK`다. 카드 사이의 연결은 저장하지 않고 `decision-graph`에 묻는다.
 - 결정 사건에는 유형이 있다: `PROPOSAL`(제안), `DISCUSSION`(논의), `DEFERRAL`(보류), `DECISION`(확정), `CHANGE`(변경), `WITHDRAWAL`(철회). 현재 결정이 될 수 있는 것은 확정과 변경뿐이다.
@@ -362,6 +368,7 @@ recordAcceptance(UUID taskId, UUID accountId, boolean accepted) : NodeRef
 - 계산 결과(항목의 현재 결정, 사건의 지위, 조건 상태)는 카드에 적어 두고, 바뀌면 카드 버전을 올린다. 행이 바뀌면 항상 버전이 1 오른다.
 - 카드 확인 상태나 업무 상태가 바뀌면 걸린 계산 결과를 이 모듈이 스스로 다시 계산한다. 줄 상태가 바뀐 경우는 `review-impact`가 `onEdgeChanged`를 불러야 한다.
 - 진행 상태 변경과 수락은 확인된 할 일에만 할 수 있다.
+- "다시 확인"(`Rechecks`): 결정 사건·조건·할 일 가운데 확인·보류된 것만 남는다(후보는 이미 검토함에 있다). 안건·결정 항목은 사건을 담을 뿐이고 현재 결정은 다시 계산되므로 남기지 않는다. 한 카드에 이유가 여럿 쌓일 수 있고, 같은 카드·같은 원인으로는 열린 것이 하나뿐이다. 닫으면 그 카드의 열린 이유가 모두 닫히고, 닫은 행도 지우지 않는다. 이유(`RecheckReason`)는 `REVIEW`, `NAME`, `ACCOUNT`, `CONDITION`, `SPAN_REVISION`.
 
 ### B.4 `entity-review`
 ```
@@ -369,6 +376,7 @@ saveCandidates(UUID projectId, List<NodeDraft> drafts) : Map<String, NodeRef>   
 getNodes(UUID projectId, Collection<NodeRef> refs) : List<NodeView>
 currentRevisions(UUID projectId, Collection<NodeRef> refs) : Map<NodeKey, Long>
 getNameCard(UUID projectId, UUID entityId) : NameCard
+namesOf(UUID projectId, Collection<UUID> entityIds) : Map<UUID, List<NameForm>>   // 여러 인물의 표기를 한 번에(검토함용)
 findCandidates(UUID projectId, String surface, String lang) : List<EntityCandidate>
 entityOfAccount(UUID projectId, UUID accountId) : Optional<UUID>
 setNodeStatus(NodeRef node, ReviewStatus s, UUID reviewer, long expectedRevision) : NodeRef
@@ -398,16 +406,21 @@ rejectName(Caller c, UUID entityId, String lang, String form) : Changed
 linkAccount(Caller c, UUID entityId, UUID accountId) : Changed
 reviseSpan(Caller c, UUID spanId, long expectedRevision, String text) : Changed
 listImpacts(UUID projectId, NodeRef changed) : List<Impact>
+listRechecks(Caller c, Integer limit, String after) : RecheckPage          // {items: [{review, causes}], next}
+resolveRecheck(Caller c, NodeKey node) : RecheckResolved                   // 검토자만. "바뀐 것 없음"
 ```
 - 검토함은 쪽을 나눠 읽는다. 확인할 것(OPEN)은 오래된 묶음부터, 처리한 것(DONE)은 최근에 바뀐 묶음부터 나온다. `limit` 기본 50, 최대 200. 다음 쪽은 `next`를 `after`로 보낸다. 근거를 하나도 읽을 수 없는 묶음은 빠지므로 `items`가 `limit`보다 적어도 `next`가 있을 수 있다.
 - 묶음 수와 상관없이 정해진 횟수만 DB를 읽는다(카드·줄·건너편 카드·발언을 한 번씩 모아 읽는다).
 - `ReviewItem`에는 카드와 줄 말고도 `related`(줄 건너편 카드)와 `sources`(줄이 가리키거나 근거로 대는 발언의 원문)가 실린다. 기준은 `context-gateway`와 같다: 원문은 읽을 수 있는 문서의 것만, 건너편 카드는 근거 줄이 있는데 하나도 읽을 수 없으면 뺀다(줄은 그대로 `edges`에 있다).
+- 인물·기관 묶음에는 `names`(언어별 표기 전부: 확인·제안·거절과 표기의 근거 발언 id)가 더 실리고, `sources`에는 그 인물을 언급한(`MENTIONS`) 발언과 표기의 근거 발언이 더해진다. 다른 종류의 묶음에서 `names`는 비어 있다. 같은 사람으로 합치는 판단은 없다.
 - **검토 묶음**: 카드 한 장과 그 카드에 딸린 줄. 줄은 기대는 쪽(`src`) 카드에 딸린다. 다만 `HAS_ITEM`·`HAS_EVENT`는 아래쪽 카드(항목, 사건)에 딸린다. 새 사건을 확인할 때 "어느 항목의 사건인지"도 함께 확인해야 하기 때문이다. `MENTIONS`·`SPOKEN_BY`는 발언에 딸리며, 그 묶음에는 카드 판단 없이 줄마다 판단을 내린다. 묶음은 카드마다 하나이고, 새 후보가 들어오면 다시 열린다.
 - **판단**(`Verdict`): `CONFIRM`, `HOLD`, `REJECT`, `RETRACT`. 따로 판단하지 않은 줄은 카드 판단을 따라간다. 내용 정정(`corrections`)을 함께 할 수 있다.
 - **권한**: 확인·정정은 사람이면서 프로젝트의 OWNER·REVIEWER만 한다. AI 작업과 외부 에이전트는 `submitCandidates`만 할 수 있다. 업무 상태는 구성원이면 바꾼다. 업무 수락은 계정이 확인된 인물 카드에 연결되어 있고, 그 인물로 가는 `ASSIGNED_TO` 줄이 확인된 본인만 한다.
 - **확인할 때 지키는 것**: (1) 결정 사건·조건·할 일은 확인된 근거 줄이 하나 이상 있어야 확인 상태일 수 있다. (2) 카드가 확인되지 않았으면 딸린 줄도 확인할 수 없다. (3) 건너편 카드가 없거나 거절·철회됐으면 그 줄은 확인할 수 없다(건너편이 후보인 것은 괜찮다). (4) 대체 줄은 확정·변경 사건끼리만, 철회 줄은 철회 사건에서 확정·변경 사건으로만 확인한다. 하나라도 어기면 아무것도 바꾸지 않는다.
 - **근거**: 줄 후보에는 근거 발언이 하나 이상 있어야 하고, 그 발언은 자료실에 실제로 있으며 내는 사람(AI 작업이면 요청한 사용자)이 읽을 수 있는 문서의 것이어야 한다. 묶음의 근거를 하나도 읽을 수 없는 사람에게는 그 묶음이 보이지 않는다.
-- **처리 후**: 줄마다 `decision-task.onEdgeChanged`를 불러 계산 결과를 맞추고, 바뀐 카드에서 `decision-graph.traverse(IMPACT)`로 영향받는 카드 목록을 구해 돌려준다. 영향 목록은 저장하지 않고 그때그때 계산한다.
+- **처리 후**: 줄마다 `decision-task.onEdgeChanged`를 불러 계산 결과를 맞추고, 바뀐 카드에서 `decision-graph.traverse(IMPACT)`로 영향받는 카드 목록을 구해 돌려준다. 응답의 영향 목록은 그때그때 계산한다.
+- **다시 확인**: 확인된 것이 바뀌었을 때만, 거기에 기대는(영향 목록의) 확인·보류된 결정 사건·조건·할 일을 `decision-task`의 `Rechecks`에 남긴다. 남기는 경우: 확인된 카드의 정정·철회, 확인된 줄의 철회, 확정을 대체·철회하는 줄의 확인(대체된 사건에 기대던 카드), 확인된 표기의 거절, 이미 연결된 계정의 변경·해제, 조건 충족 확인, 발언 정정. 후보를 처음 확인하는 일, 표기를 새로 확인하는 일, 처음 계정을 연결하는 일, 할 일의 진행 상태·수락은 새 정보라서 남기지 않는다. 어떤 카드의 묶음을 처리하면(`applyAction`) 그 카드의 "다시 확인"은 `REVIEWED`로 닫히고, 그대로 두려면 `resolveRecheck`로 `KEPT`로 닫는다.
+- `listRechecks`는 이유가 먼저 생긴 카드부터 쪽을 나눠 돌려준다(`limit` 기본 50, 최대 200). 카드는 지금 상태의 검토 묶음으로 싣고, `listReviews`와 같은 기준으로 볼 수 없는 카드는 뺀다. 이유의 `label`(바뀐 카드 제목이나 발언 원문)은 그 사람이 볼 수 있을 때만 싣는다. 그사이 거절·철회된 카드는 빠진다.
 - `idempotencyKey`가 같은 요청이 다시 오면 두 번 처리하지 않는다. `expectedVersion`이 현재 묶음 버전과 다르면 거절한다. 처리 기록은 `review_action`에 남는다.
 - 설계에 있던 "줄을 확인할 때 본 카드 버전을 줄에 기록"은 하지 않기로 했다. 카드 버전은 상태가 바뀔 때마다 오르므로 그 값으로는 "낡은 줄"을 가릴 수 없고, 영향은 `traverse(IMPACT)`로 구하기 때문이다.
 
@@ -419,14 +432,14 @@ decisionHistory(Caller c, UUID decisionItemId) : ContextPacket               // 
 verifyCurrent(Caller c, List<NodeRef> nodes, List<EdgeRef> edges) : List<StaleRef>   // 구현됨
 tasks(Caller c, TaskFilter f) : ContextPacket                                // 구현됨 (내 할 일, 담당자별, 상태별)
 resolveEntity(Caller c, String surface, String lang) : ContextPacket         // 구현됨. 후보가 여럿이면 open에 알림
-nameCard(Caller c, UUID entityId) : NameCard                                 // 구현됨
+nameCard(Caller c, UUID entityId) : NameCard                                 // 구현됨. 언어별 표기 + sources(표기의 근거·이 인물을 언급한 발언, 읽을 수 있는 것만, 최대 20)
 searchEvidence(Caller c, String query, int k) : ContextPacket                // 구현됨. 찾은 발언 + 그 발언에 기댄 카드
 ```
 읽기 전용이다. 모든 함수가 같은 절차를 밟는다: `authorize(c)` → 조회 → `filterByEvidenceAccess` → `attachEvidence` → `logAccess`.
 
 - `Caller.kind`가 JOB이면 `onBehalfOf` 사용자의 권한으로 조회한다.
 - `CONFIRMED`와 `CANDIDATE`를 상태 표시와 함께 돌려준다. `HELD`인 카드와 줄은 `open`에 넣고 그 너머로 따라가지 않는다. `REJECTED`·`RETRACTED`는 돌려주지 않고 그 너머로도 가지 않는다.
-- `open`에는 보류된 카드·줄, 경합 중인 결정 항목, 미충족 조건이 들어간다.
+- `open`에는 보류된 카드·줄, 경합 중인 결정 항목, 미충족 조건, 다시 확인할 카드(`NEEDS_RECHECK`, `decision-task`의 `Rechecks.openOf`)가 들어간다.
 - 근거(`EVIDENCED_BY`)는 따라간 칸 수와 무관하게 답변서에 담긴 모든 카드에 붙인다.
 - `trace`는 `decision-graph.traverse`를 쓰지 않고 `edgesOfMany`로 한 칸씩 넓힌다. 칸마다 건너편 카드의 확인 상태를 보고 더 갈지 정해야 하기 때문이다. `traverse`는 카드 상태와 무관하게 영향 범위를 구하는 `review-impact`가 쓴다.
 - `currentState`는 항목마다 지금 유효한 사건(경합이면 겹치는 사건들)만 담는다. 지난 제안과 대체된 결정은 `decisionHistory`에서 일어난 순서로 본다.
@@ -480,6 +493,7 @@ job-operation     enqueue(JobType t, UUID projectId, UUID subjectId, String payl
                   acceptResult(UUID jobId, UUID attemptId, String leaseToken) : Job   // 임대 검사, 중복 제출 거절
                   fail(UUID jobId, UUID attemptId, String leaseToken, String reason, boolean retryable) : Job
                   cancel(UUID projectId, UUID jobId) : Job
+                  retry(UUID projectId, UUID jobId) : Job       // FAILED만. 시도 횟수를 0으로, 처음 올린 자리에서 다시 기다림. 마지막 실패 이유는 남김
                   get / list
                   bySubjects(UUID projectId, Collection<UUID> subjectIds) : List<Job>   // 문서의 판마다 자르기·뽑기 상태
                   // 작업 내용은 subject_id(문서의 판 등)와 payload(질문 등) 두 칸으로 적는다. 최대 3번 시도
@@ -509,6 +523,7 @@ pipeline          startIngest(Caller c, DocumentInput in) : IngestStarted   // r
                   // 넘기다 실패하면 결과를 받지 않은 것으로 되돌아가고, 일꾼은 같은 임대증으로 고쳐서 다시 낼 수 있다
                   getJob / listJobs
                   // 볼 수 있는 작업만: PARSE·EXTRACT는 그 문서를 읽을 수 있어야, GENERATE는 요청한 사람에게만. 아니면 없는 작업과 같다
+                  retryJob(Caller c, UUID jobId) : Job      // 볼 수 있는 작업 중 그 작업을 시킨 사람이나 OWNER만. 실패한 작업이 아니면 409
                   listDocuments(Caller c) : List<DocumentStatus>            // 문서 + 판 수 + 가장 최근 판의 처리 상태
                   openDocument(Caller c, UUID documentId, Integer versionNo, UUID spanId) : DocumentView
                   // 원문 뷰어. 판을 고르지 않으면 최신 판, spanId를 주면 그 발언이 든 판(근거 Source에는 판이 없어서).
@@ -553,6 +568,8 @@ ReviewController    GET  /api/v1/projects/{id}/reviews[?state=&ownerType=&limit=
                     POST /api/v1/projects/{id}/entities/{entityId}/names, /entities/{entityId}/account
                     POST /api/v1/projects/{id}/spans/{spanId}/revisions
                     GET  /api/v1/projects/{id}/impacts?type=&id=
+                    GET  /api/v1/projects/{id}/rechecks[?limit=&after=]
+                    POST /api/v1/projects/{id}/rechecks/{type}/{nodeId}/resolve
 ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 낡은 버전·불가능한 상태 409, 잘못된 값 400
 ```
 - 요청자는 `CallerResolver`가 `Authorization: Bearer 토큰`과 주소의 `{projectId}`로 `identity-access.authenticate`를 불러 만든다. 요청 본문이나 주소의 사용자 id는 쓰지 않는다.
@@ -563,7 +580,7 @@ ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 낡은 
   - `Origin` 헤더가 붙은 요청은 `contexa.mcp.allowed-origins`에 있을 때만 받는다(브라우저의 다른 사이트가 부르는 것을 막기 위해). 기본값은 빈 목록이다.
 - 질문·답변: `POST /api/v1/projects/{id}/generations {question, kind?, lang?}`, `GET /generations`, `GET /generations/{artifactId}`. 근거 검색: `POST /api/v1/projects/{id}/context/search {query, k?}`(찾을 내용은 주소가 아니라 본문으로 보낸다).
 - 뒷문에 글쓰기용 주소 추가: `GET /internal/v1/jobs/{jobId}/request`, `POST /{jobId}/context/search`, `GET /{jobId}/context/trace`.
-- 문서 올리기: `POST /api/v1/projects/{id}/documents`, `/documents/{documentId}/versions` → `pipeline.startIngest`. 작업 상태: `GET /api/v1/projects/{id}/jobs`, `/jobs/{jobId}`(볼 수 있는 작업만).
+- 문서 올리기: `POST /api/v1/projects/{id}/documents`, `/documents/{documentId}/versions` → `pipeline.startIngest`. 작업 상태: `GET /api/v1/projects/{id}/jobs`, `/jobs/{jobId}`(볼 수 있는 작업만). 다시 맡기기: `POST /jobs/{jobId}/retry` → `pipeline.retryJob`(실패한 작업만, 시킨 사람이나 OWNER만, 시도 횟수는 처음부터).
 - 문서 읽기: `GET /api/v1/projects/{id}/documents` → `pipeline.listDocuments`(읽을 수 있는 문서 + 최신 판 처리 상태), `GET /documents/{documentId}[?version=N | ?span=spanId]` → `pipeline.openDocument`(판 목록과 처리 상태, 연 판의 발언 또는 자르기 전 원문). 읽을 수 없는 문서는 404. version과 span을 함께 주면 400.
 - 뒷문(`InternalJobController`, AI 인턴 전용): `GET /internal/v1/jobs/ontology`, `POST /claim`, `GET /{jobId}/content`, `/{jobId}/spans`, `/{jobId}/context/state`, `POST /{jobId}/result`, `/{jobId}/failure`. 모든 요청에 일꾼 토큰(`X-Worker-Token`)이, 일을 가져간 뒤에는 임대증(`X-Attempt-Id`, `X-Lease-Token`)이 필요하다. 사람의 로그인 토큰으로는 들어올 수 없다. 누구의 권한으로 읽을지는 서버가 작업 기록에서 정한다(`identity-access.callerForJob`).
 - 개발용 패키지 `dev`: `POST /dev/seed`가 예시 사용자·프로젝트·전사문을 만들고, 실제 흐름과 같은 길(`submitCandidates` → `applyAction`)로 "국제교류 행사" 장면을 넣은 뒤 로그인 토큰을 돌려준다. `contexa.dev-seed.enabled: true`일 때만 켜진다.
@@ -602,19 +619,19 @@ server.py    ServerClient            뒷문 클라이언트 (표준 라이브러
 ```
 Http.kt           OkHttp·Retrofit 만들기. 요청마다 Authorization: Bearer, 401이면 로그인 화면으로
 Models.kt         server 응답 타입. 원본은 Java contract·컨트롤러 record
-ContextApi.kt     state · history · trace · tasks                              (ContextController)
-                  taskStatus · acceptance · linkAccount                        (ReviewController)
-ReviewApi.kt      list · act                                                   (ReviewController)
+ContextApi.kt     state · history · trace · tasks · resolveEntity · nameCard   (ContextController)
+                  taskStatus · acceptance · linkAccount · name                 (ReviewController)
+ReviewApi.kt      list · act · rechecks · resolveRecheck                       (ReviewController)
 AuthApi.kt        signUp · login · listProjects · createProject                   (AuthController)
-DocumentApi.kt    upload · uploadVersion · list · open · reviseSpan            (DocumentController)
-GenerationApi.kt  ask · list · get                                             (GenerationController)
+DocumentApi.kt    upload · uploadVersion · list · open · reviseSpan · retryJob (DocumentController)
+GenerationApi.kt  ask(질문·브리핑) · list · get                                 (GenerationController)
 ```
-- 아직 부르지 않는 것: `searchEvidence`, `resolveEntity`, `nameCard`, `verifyCurrent`, `satisfyCondition`, 이름 확인(`/entities/{id}/names`), 구성원 관리.
+- 아직 부르지 않는 것: `searchEvidence`, `verifyCurrent`, `satisfyCondition`, 구성원 관리. `linkAccount`는 정의만 있고 2026-11-21 화면 개편 뒤로 부르는 화면이 없다.
 - 화면은 프로젝트 목록 → 프로젝트 안의 아래 탭 네 개(자료함·검토함·질문·맥락)다. 실제 권한 검사는 server가 요청마다 한다.
-- 자료함: 목록은 처리 중인 문서가 있으면 2초마다 다시 읽는다. 원문 뷰어는 판을 고를 수 있고, 근거 링크로 열면(`span=발언 id`) 그 발언이 든 판을 열고 노란색으로 칠한다. 소유자·검토자에게만 발언마다 정정 버튼이 있고, 내가 본 발언 버전을 함께 보낸다.
-- 검토함: 확인할 것(OPEN)·처리한 것(DONE), 종류 거르기. 묶음마다 카드·근거 원문·딸린 줄을 보여 주고, 확인·보류·거절·철회와 정정(바뀐 값만 `corrections`로)을 보낸다. 줄은 따로 고르지 않으면 카드 판단을 따른다. `idempotencyKey`는 `묶음 id:버전:요청 내용 해시`라 같은 요청을 두 번 보내도 한 번만 처리되고, 그사이 묶음이 바뀌었으면 server가 409(STALE)로 막는다. 처리한 뒤에는 영향받는 카드 수를 알려 준다. 구성원(MEMBER)은 볼 수만 있다.
-- 질문: 답변 언어를 골라 묻거나 브리핑(`kind=BRIEFING`)을 받는다. 답이 써질 때까지 2초마다 다시 열어 보고(3분 상한), 본문의 `[1]`, `[2]`에 맞춘 인용을 누르면 원문 뷰어의 그 발언으로 간다. 참고한 카드가 그사이 바뀌었으면(`stale`) 경고를 띄운다.
-- 맥락: 현황(`state`)을 안건별 결정 항목과 "남은 것"으로 보여 주고, 항목의 이력(`history`)과 카드의 근거·영향(`trace`)을 연다. 할 일은 상태를 바꾸고(내가 읽은 revision을 함께 보냄), "내 할 일"에서는 담당을 수락·거절한다. "사람"에서는 소유자·검토자가 확인된 인물 카드를 이메일로 계정에 연결하거나 끊는다(연결돼야 그 계정의 "내 할 일"이 채워진다).
+- 자료함: 목록은 처리 중인 문서가 있으면 2초마다 다시 읽는다. 원문 뷰어는 판을 고를 수 있고, 근거 링크로 열면(`span=발언 id`) 그 발언이 든 판을 열고 노란색으로 칠한다. 소유자·검토자에게만 발언마다 정정 버튼이 있고, 내가 본 발언 버전을 함께 보낸다. 자르기·뽑기가 실패로 끝난 판에는 "다시 시도" 버튼이 있다(`retryJob`). 누를 수 있는지는 server가 정하고(시킨 사람이나 OWNER), 아니면 server의 이유를 보여 준다.
+- 검토함: 확인할 것(OPEN)·다시 확인·처리한 것(DONE), 종류 거르기(다시 확인은 받은 뒤에 거른다). 묶음마다 카드·근거 원문·딸린 줄을 보여 주고, 확인·보류·거절·철회와 정정(바뀐 값만 `corrections`로)을 보낸다. 줄은 따로 고르지 않으면 카드 판단을 따른다. `idempotencyKey`는 `묶음 id:버전:요청 내용 해시`라 같은 요청을 두 번 보내도 한 번만 처리되고, 그사이 묶음이 바뀌었으면 server가 409(STALE)로 막는다. 처리한 뒤에는 영향받는 카드 수를 알려 준다. 구성원(MEMBER)은 볼 수만 있다. 인물·기관 묶음은 언어별 표기와 그 인물을 언급한 발언을 보여 주고, 이름 확인 화면으로 가는 버튼이 있다. "다시 확인"에서는 묶음 위에 무엇이 어떻게 바뀌었는지(볼 수 없는 것은 종류만)를 적고, 소유자·검토자에게 "바뀐 것 없음"(`resolveRecheck`) 버튼을 더 보여 준다. 철회 같은 묶음 처리를 하면 server가 그 카드의 "다시 확인"을 닫는다.
+- 질문: 묻거나, "인수인계 브리핑" 칩을 켜고 브리핑(`kind=BRIEFING`)을 받는다. 브리핑은 입력 칸을 초점으로 쓰고, 비워 두면 정해 둔 요청(지금의 결정·남은 조건·할 일과 담당자)을 보낸다. 답할 언어는 보내지 않고 server가 질문의 글자로 정한다. 답이 써질 때까지 2초마다 다시 열어 보고(3분 상한), 본문의 `[1]`, `[2]`에 맞춘 인용을 누르면 원문 뷰어의 그 발언으로 간다. 참고한 카드가 그사이 바뀌었으면(`stale`) 경고를 띄운다.
+- 맥락: 현황(`state`)을 안건별 결정 항목과 "남은 것"으로 보여 주고, 항목의 이력(`history`)과 카드의 근거·영향(`trace`)을 연다. 할 일은 상태를 바꾸고(내가 읽은 revision을 함께 보냄), "내 할 일"에서는 담당을 수락·거절한다. server가 `open`에 `NEEDS_RECHECK`를 붙인 할 일에는 맥락과 원문 뷰어 모두 "다시 확인 필요" 표시가 붙는다. "사람"은 확인된 인물·기관 목록이고, 누르면 이름 확인 화면(`nameCard`)이 열린다. 언어별 표기마다 상태와 그 표기가 나온 발언을 보여 주고, 소유자·검토자는 표기를 확인·거절한다(`name`, 확인할 때는 그 발언을 근거로 함께 보낸다). 표기가 나온 발언은 적힌 근거가 먼저이고, 없으면 정규화(NFC·소문자·공백 정리, 아랍어 모음 기호·타트윌 제거, 알리프 통일)한 글자가 그대로 들어 있는 발언이다. 음역이 비슷한 것은 같은 표기로 치지 않는다. 아래에는 이 인물의 표기로 이름 찾기(`resolveEntity`)를 불러 나온 다른 인물을 "이름이 겹치는 인물"로 보여 주고, server가 `AMBIGUOUS_NAME`을 붙인 것은 표시한다. 합치는 버튼은 없다.
 - 코드 구조와 실행 방법은 `android/README.md`.
 
 ## 부록 C. 함수 호출 순서
