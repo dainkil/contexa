@@ -20,6 +20,25 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        // 배포 서명 키는 레포 밖에 둔다(docs/contexa_deploy_plan.md 5절). 잃어버리면 같은 앱으로 업데이트를 낼 수 없다.
+        // 키 파일: CONTEXA_KEYSTORE(기본 ~/.contexa/contexa-release.jks), 비밀번호: CONTEXA_KEYSTORE_PASSWORD.
+        // 둘 중 하나라도 없으면 release는 서명 없이 만들어진다.
+        val keystore = file(
+            providers.environmentVariable("CONTEXA_KEYSTORE")
+                .getOrElse("${System.getProperty("user.home")}/.contexa/contexa-release.jks")
+        )
+        val password = providers.environmentVariable("CONTEXA_KEYSTORE_PASSWORD").orNull
+        if (keystore.isFile && password != null) {
+            create("release") {
+                storeFile = keystore
+                storePassword = password
+                keyAlias = "contexa"
+                keyPassword = password
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // server는 이 컴퓨터의 127.0.0.1:8090에만 붙어 있다. `adb reverse tcp:8090 tcp:8090`으로
@@ -31,9 +50,11 @@ android {
         }
         release {
             // 배포 주소는 아직 없다(docs/contexa_deploy_plan.md). 빌드할 때 -PapiBaseUrl=https://… 로 넣는다.
+            // 데모 서버가 생기기 전에 만든 APK는 contexa.invalid로 가므로 공개하지 않는다.
             val apiBaseUrl = providers.gradleProperty("apiBaseUrl")
                 .getOrElse("https://contexa.invalid/api/v1/")
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false
         }
     }
