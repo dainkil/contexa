@@ -493,6 +493,21 @@ public class IdentityAccess {
 				""").param("hash", sha256(token.strip())).update();
 	}
 
+	/**
+	 * 만료되거나 폐기된 지 {@code keep}보다 오래된 토큰을 지운다. 그런 토큰은 어차피 받지 않으므로(401) 행만 쌓인다.
+	 * 로그인 토큰은 12시간마다 새로 생기므로 지우지 않으면 계속 늘어난다.
+	 *
+	 * @return 지운 토큰 수
+	 */
+	@Transactional
+	public int purgeStaleTokens(Duration keep) {
+		return jdbc.sql("""
+				delete from access_token
+				 where expires_at < now() - make_interval(secs => :keep)
+				    or revoked_at < now() - make_interval(secs => :keep)
+				""").param("keep", keep.toSeconds()).update();
+	}
+
 	private record TokenRow(UUID id, String kind, UUID userId, UUID projectId, Caller.Audience audience) {
 	}
 

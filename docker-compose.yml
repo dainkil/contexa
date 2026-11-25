@@ -9,6 +9,8 @@ services:
       - "5434:5432"
     volumes:
       - contexa-db:/var/lib/postgresql/data
+      # 처음 만들 때만 돈다: 테스트용 DB(contexa_test)를 함께 만든다
+      - ./docker/db-init:/docker-entrypoint-initdb.d:ro
 
 volumes:
   contexa-db:

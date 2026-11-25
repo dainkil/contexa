@@ -3,6 +3,12 @@ package com.contexa.server.identity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -104,6 +110,43 @@ class IdentityAccessTest {
 		jdbc.sql("update access_token set expires_at = now() - interval '1 minute'").update();
 		assertThatThrownBy(() -> identity.authenticate(token, projectId))
 				.isInstanceOf(UnauthenticatedException.class);
+	}
+
+	@Test
+	void 오래전에_만료되거나_폐기된_토큰만_지운다() {
+		String fresh = identity.login(email, PASSWORD);
+		String justRevoked = identity.login(email, PASSWORD);
+		identity.logout(justRevoked);
+		String longExpired = identity.login(email, PASSWORD);
+		String longRevoked = identity.login(email, PASSWORD);
+		age(longExpired, "expires_at");
+		age(longRevoked, "revoked_at");
+
+		identity.purgeStaleTokens(Duration.ofDays(7));
+
+		assertThat(tokenRows(fresh, justRevoked)).isEqualTo(2);
+		assertThat(tokenRows(longExpired, longRevoked)).isZero();
+		assertThat(identity.authenticateUser(fresh)).isEqualTo(owner);
+	}
+
+	/** 이 토큰의 시각 칸을 8일 전으로 돌린다. */
+	private void age(String token, String column) {
+		jdbc.sql("update access_token set " + column + " = now() - interval '8 days' where token_hash = :hash")
+				.param("hash", sha256(token)).update();
+	}
+
+	private long tokenRows(String... tokens) {
+		return jdbc.sql("select count(*) from access_token where token_hash in (:hashes)")
+				.param("hashes", Arrays.stream(tokens).map(IdentityAccessTest::sha256).toList())
+				.query(Long.class).single();
+	}
+
+	private static String sha256(String value) {
+		try {
+			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+		} catch (GeneralSecurityException e) {
+			throw new IllegalStateException(e);
+		}
 	}
 
 	// ---- 프로젝트와 역할 ----

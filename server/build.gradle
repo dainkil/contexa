@@ -32,4 +32,8 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// 테스트는 개발 DB(contexa)가 아니라 같은 컨테이너의 contexa_test에 붙는다. 시연 데이터에 테스트 기록이 섞이지 않게 한다.
+	// 다른 DB에 붙이려면(CI 등) CONTEXA_TEST_DB_URL로 바꾼다
+	systemProperty 'spring.datasource.url',
+			providers.environmentVariable('CONTEXA_TEST_DB_URL').orElse('jdbc:postgresql://localhost:5434/contexa_test').get()
 }
