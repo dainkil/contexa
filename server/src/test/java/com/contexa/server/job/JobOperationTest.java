@@ -108,6 +108,37 @@ class JobOperationTest {
 	}
 
 	@Test
+	void 실패로_끝난_일을_다시_맡기면_시도_횟수를_처음부터_세고_이유는_남긴다() {
+		JobLease lease = jobs.claim("worker-1").orElseThrow();
+		jobs.fail(jobId, lease.attemptId(), lease.leaseToken(), "빈 문서", false);
+
+		Job again = jobs.retry(owner.projectId(), jobId);
+
+		assertThat(again.status()).isEqualTo(JobStatus.QUEUED);
+		assertThat(again.attempts()).isZero();
+		assertThat(again.finishedAt()).isNull();
+		assertThat(again.lastError()).isEqualTo("빈 문서");
+		// 앞 시도의 임대증으로는 결과를 낼 수 없고, 다시 가져간 일꾼은 첫 시도로 센다
+		assertThatThrownBy(() -> jobs.acceptResult(jobId, lease.attemptId(), lease.leaseToken()))
+				.isInstanceOf(LeaseRejectedException.class);
+		JobLease next = jobs.claim("worker-2").orElseThrow();
+		assertThat(next.job().id()).isEqualTo(jobId);
+		assertThat(next.job().attempts()).isEqualTo(1);
+	}
+
+	@Test
+	void 실패로_끝나지_않은_일과_다른_프로젝트의_일은_다시_맡길_수_없다() {
+		assertThatThrownBy(() -> jobs.retry(owner.projectId(), jobId)).isInstanceOf(IllegalStateException.class);
+		JobLease lease = jobs.claim("worker-1").orElseThrow();
+		assertThatThrownBy(() -> jobs.retry(owner.projectId(), jobId)).isInstanceOf(IllegalStateException.class);
+		jobs.fail(jobId, lease.attemptId(), lease.leaseToken(), "빈 문서", false);
+
+		Caller other = Fixtures.newOwner(identity);
+		assertThatThrownBy(() -> jobs.retry(other.projectId(), jobId)).isInstanceOf(JobNotFoundException.class);
+		assertThat(jobs.get(owner.projectId(), jobId).status()).isEqualTo(JobStatus.FAILED);
+	}
+
+	@Test
 	void 다시_해도_소용없는_실패는_바로_끝난다() {
 		JobLease lease = jobs.claim("worker-1").orElseThrow();
 

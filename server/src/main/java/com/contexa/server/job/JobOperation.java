@@ -169,6 +169,28 @@ public class JobOperation {
 		return require(jobId);
 	}
 
+	/**
+	 * 실패로 끝난 일을 다시 맡긴다. 시도 횟수를 0으로 되돌리고, 처음 올린 시각의 자리에서 다시 기다린다.
+	 * 마지막 실패 이유는 지우지 않는다(다시 시도해서 성공한 일에도 남는 것과 같다). 누가 다시 맡길 수 있는지는 호출한 쪽이 정한다.
+	 *
+	 * @throws JobNotFoundException  이 프로젝트에 없는 일
+	 * @throws IllegalStateException 실패로 끝난 일이 아니다(이미 다시 맡겼거나, 진행 중이거나, 성공했거나, 취소됐다)
+	 */
+	@Transactional
+	public Job retry(UUID projectId, UUID jobId) {
+		int updated = jdbc.sql("""
+				update job set status = 'QUEUED', attempts = 0, attempt_id = null, lease_token_hash = null,
+				       leased_by = null, lease_expires_at = null, finished_at = null, updated_at = now()
+				 where id = :id and project_id = :projectId and status = 'FAILED'
+				""")
+				.param("id", jobId).param("projectId", projectId).update();
+		if (updated == 0) {
+			Job job = get(projectId, jobId);
+			throw new IllegalStateException("실패로 끝난 작업만 다시 맡길 수 있다(지금 " + job.status() + ")");
+		}
+		return require(jobId);
+	}
+
 	/** 아직 끝나지 않은 일을 취소한다. 일하던 일꾼의 임대증은 무효가 된다. */
 	@Transactional
 	public Job cancel(UUID projectId, UUID jobId) {

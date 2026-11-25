@@ -69,6 +69,12 @@ public class DocumentController {
 		return pipeline.getJob(caller, jobId);
 	}
 
+	/** 실패로 끝난 작업을 다시 맡긴다. 그 작업을 시킨 사람이나 OWNER만 할 수 있고, 시도 횟수는 처음부터 센다. */
+	@PostMapping("/jobs/{jobId}/retry")
+	public Job retryJob(Caller caller, @PathVariable UUID jobId) {
+		return pipeline.retryJob(caller, jobId);
+	}
+
 	public record NewVersionRequest(String content) {
 	}
 }

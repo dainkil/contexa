@@ -200,7 +200,46 @@ class DocumentApiTest {
 		mvc.perform(as(owner, get(base + "/documents/" + UUID.randomUUID()))).andExpect(status().isNotFound());
 	}
 
+	@Test
+	void 실패한_작업은_시킨_사람이나_주인만_다시_맡기고_시도_횟수는_처음부터_센다() throws Exception {
+		String byOwner = JsonPath.read(upload(owner, base, TRANSCRIPT), "$.jobId");
+		String byMember = JsonPath.read(upload(member, base, TRANSCRIPT), "$.jobId");
+		String memo = JsonPath.read(upload(owner, base, MEMO), "$.jobId");
+		fail(byOwner, byMember, memo);
+
+		// 볼 수는 있어도 시킨 사람도 주인도 아니면 안 된다
+		mvc.perform(as(member, post(base + "/jobs/" + byOwner + "/retry"))).andExpect(status().isForbidden());
+		// 남의 개인 메모를 자르는 작업은 보이지 않으니 없는 작업과 같다
+		mvc.perform(as(member, post(base + "/jobs/" + memo + "/retry"))).andExpect(status().isNotFound());
+		// 다른 프로젝트 사람은 그 프로젝트에도, 자기 프로젝트 주소로도 다시 맡길 수 없다
+		mvc.perform(as(stranger, post(base + "/jobs/" + byOwner + "/retry"))).andExpect(status().isForbidden());
+		mvc.perform(as(stranger, post(strangerBase + "/jobs/" + byOwner + "/retry")))
+				.andExpect(status().isNotFound());
+
+		mvc.perform(as(member, post(base + "/jobs/" + byMember + "/retry")))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("QUEUED"))
+				.andExpect(jsonPath("$.attempts").value(0))
+				.andExpect(jsonPath("$.lastError").value("모델 응답 시간 초과"));
+		mvc.perform(as(owner, post(base + "/jobs/" + byOwner + "/retry")))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("QUEUED"));
+		// 이미 다시 맡긴 작업은 실패한 작업이 아니다
+		mvc.perform(as(owner, post(base + "/jobs/" + byOwner + "/retry"))).andExpect(status().isConflict());
+		mvc.perform(as(owner, get(base + "/jobs/" + byOwner))).andExpect(jsonPath("$.status").value("QUEUED"));
+	}
+
 	// ---- 도우미 ----
+
+	/** 일꾼이 세 번 시도하고 포기한 것처럼 작업을 실패로 끝낸다. */
+	private void fail(String... jobIds) {
+		for (String jobId : jobIds) {
+			jdbc.sql("""
+					update job set status = 'FAILED', attempts = 3, last_error = '모델 응답 시간 초과', finished_at = now()
+					 where id = :id
+					""").param("id", UUID.fromString(jobId)).update();
+		}
+	}
 
 	private static MockHttpServletRequestBuilder as(String token, MockHttpServletRequestBuilder request) {
 		return request.header("Authorization", "Bearer " + token);

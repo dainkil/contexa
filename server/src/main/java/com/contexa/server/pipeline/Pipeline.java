@@ -22,6 +22,7 @@ import com.contexa.server.document.VersionSummary;
 import com.contexa.server.generation.GenerationWiki;
 import com.contexa.server.identity.IdentityAccess;
 import com.contexa.server.identity.NotAllowedException;
+import com.contexa.server.identity.Role;
 import com.contexa.server.job.Job;
 import com.contexa.server.job.JobNotFoundException;
 import com.contexa.server.job.JobOperation;
@@ -121,6 +122,27 @@ public class Pipeline {
 			throw new JobNotFoundException(jobId);
 		}
 		return job;
+	}
+
+	/**
+	 * 실패로 끝난 작업을 다시 맡긴다. 시도 횟수는 처음부터 다시 센다.
+	 * 볼 수 없는 작업은 없는 작업과 똑같이 거절하고, 볼 수 있어도 그 작업을 시킨 사람이나 프로젝트 OWNER만 다시 맡긴다.
+	 *
+	 * @throws JobNotFoundException  없거나 볼 수 없는 작업
+	 * @throws NotAllowedException   사람이 아니거나, 시킨 사람도 OWNER도 아니다
+	 * @throws IllegalStateException 실패로 끝난 작업이 아니다
+	 */
+	@Transactional
+	public Job retryJob(Caller caller, UUID jobId) {
+		Job job = getJob(caller, jobId);
+		if (caller.kind() != Caller.Kind.USER) {
+			throw new NotAllowedException("작업은 사람만 다시 맡길 수 있다");
+		}
+		boolean owner = identity.roleOf(caller.projectId(), caller.id()).filter(Role.OWNER::equals).isPresent();
+		if (!owner && !job.requestedBy().equals(caller.id())) {
+			throw new NotAllowedException("작업을 시킨 사람이나 프로젝트 OWNER만 다시 맡길 수 있다");
+		}
+		return jobs.retry(caller.projectId(), jobId);
 	}
 
 	/** 이 프로젝트에서 요청자가 볼 수 있는 작업. 최근 것부터 50개. */
