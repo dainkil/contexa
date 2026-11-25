@@ -212,10 +212,12 @@ curl -X POST http://127.0.0.1:8090/dev/demo
 
 ```sh
 (cd android && ./gradlew :app:testDebugUnitTest)
-(cd server && ./gradlew test)                                  # db가 떠 있어야 한다
+(cd server && ./gradlew test)                                  # db가 떠 있어야 한다. 테스트는 같은 컨테이너의 contexa_test DB를 쓴다
 (cd ai && python3 -m unittest discover -s tests -t .)          # 모델 없이 돈다
 ai/.venv/bin/python -m unittest discover -s eval/tests -t .    # 레포 루트에서. 라벨·채점 확인
 ```
+
+PR과 main push마다 GitHub Actions(`.github/workflows/ci.yml`)가 세 묶음을 모두 돌립니다. server는 PostgreSQL 서비스 컨테이너를 띄워 `./gradlew build`, ai는 단위 테스트와 평가 테스트, android는 단위 테스트와 debug 빌드입니다.
 
 테스트가 막는 것: 다른 프로젝트·남의 개인 메모 접근, 확인하지 않은 후보가 확정으로 바뀌는 것, 원문에 없는 인용 저장, 정정된 정보가 이전 할 일·답변에 그대로 남는 것.
 

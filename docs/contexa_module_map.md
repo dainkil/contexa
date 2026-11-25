@@ -463,6 +463,8 @@ identity-access   signUp(String email, String displayName, String password) : UU
                                                                             // 이메일은 OWNER에게, 그리고 내 것만 싣는다
                   logout(String token)                                      // 그 로그인 토큰을 폐기. 없거나 이미 폐기된 토큰이어도 조용히 끝난다.
                                                                             // 에이전트 토큰은 여기서 폐기하지 않는다
+                  purgeStaleTokens(Duration keep) : int                     // 만료·폐기된 지 keep보다 오래된 토큰 행을 지운다.
+                                                                            // identity.TokenCleanup이 매일 04:30에 부른다(keep 7일, 설정으로 바꿈)
                   canReview(Caller c) : boolean                             // 사람 + OWNER·REVIEWER
                   isMember(Caller c) : boolean
                   authenticateAgent(String token) : Caller                  // 에이전트 토큰 전용. 토큰의 프로젝트와 범위로
@@ -599,6 +601,7 @@ ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 잘못�
 - 문서 올리기: `POST /api/v1/projects/{id}/documents`, `/documents/{documentId}/versions` → `pipeline.startIngest`. 작업 상태: `GET /api/v1/projects/{id}/jobs`, `/jobs/{jobId}`(볼 수 있는 작업만). 다시 맡기기: `POST /jobs/{jobId}/retry` → `pipeline.retryJob`(실패한 작업만, 시킨 사람이나 OWNER만, 시도 횟수는 처음부터).
 - 문서 읽기: `GET /api/v1/projects/{id}/documents` → `pipeline.listDocuments`(읽을 수 있는 문서 + 최신 판 처리 상태), `GET /documents/{documentId}[?version=N | ?span=spanId]` → `pipeline.openDocument`(판 목록과 처리 상태, 연 판의 발언 또는 자르기 전 원문). 읽을 수 없는 문서는 404. version과 span을 함께 주면 400.
 - 뒷문(`InternalJobController`, AI 인턴 전용): `GET /internal/v1/jobs/ontology`, `POST /claim`, `GET /{jobId}/content`, `/{jobId}/spans`, `/{jobId}/context/state`, `POST /{jobId}/result`, `/{jobId}/failure`, `/{jobId}/heartbeat`(임대 연장 → `{leaseExpiresAt}`, `job.renew`). 모든 요청에 일꾼 토큰(`X-Worker-Token`)이, 일을 가져간 뒤에는 임대증(`X-Attempt-Id`, `X-Lease-Token`)이 필요하다. 사람의 로그인 토큰으로는 들어올 수 없다. 누구의 권한으로 읽을지는 서버가 작업 기록에서 정한다(`identity-access.callerForJob`).
+- 정리 작업: `identity.TokenCleanup`(`@Scheduled`, `contexa.auth.token-cleanup.cron` 기본 `0 30 4 * * *`, `contexa.auth.token-cleanup.keep` 기본 `7d`)이 `purgeStaleTokens`를 부른다. 조회 인덱스는 V15(`job(requested_by, created_at)`, `access_token(user_id)`·`(project_id)`, `entity_name(evidence_span_id)`).
 - 배포 보호(prod 프로필, `docs/contexa_deploy_plan.md`): 가입 허용 목록 `identity.SignupPolicy`, 로그인 시도 제한 `identity.LoginThrottle`, 사용자당 하루 AI 작업 수 `job.AiQuota`(`pipeline.startIngest`·`generation.requestGeneration`이 부른다), 일꾼 토큰 검사 `api.WorkerTokenCheck`.
 - 계정 삭제(`pipeline.AccountDeletion`): 나 혼자인 프로젝트는 각 모듈의 `purgeProject`로 통째로 지운다. 함께 쓰는 프로젝트에서는 `generation.deleteArtifactsOf` → `review.Erasure.forgetSpans`(개인 메모 발언에만 기대던 카드·줄) → `document.deleteDocuments` → `job.deleteJobs` → `identity.leaveProject`(하나뿐인 OWNER면 가장 먼저 들어온 REVIEWER, 없으면 MEMBER에게 넘김) 순서로 지운다. 마지막에 `identity.anonymize`가 토큰을 없애고 이메일·이름·비밀번호를 지운다(행은 남아 "탈퇴한 사용자"로 보인다). 카드·줄·검토 기록을 지우는 함수는 이 흐름에서만 쓴다.
 - 개발용 패키지 `dev`: `POST /dev/seed`가 예시 사용자·프로젝트·전사문을 만들고, 실제 흐름과 같은 길(`submitCandidates` → `applyAction`)로 "국제교류 행사" 장면을 넣은 뒤 로그인 토큰을 돌려준다. `POST /dev/demo`는 시연 계정과 "국제교류의 밤 준비" 프로젝트를 만든다. `POST /dev/eval/corpus {title, documents:[{title, kind, spans:[{speakerLabel, text}]}]}`는 평가용으로, 이미 잘린 문서를 평가 계정의 새 프로젝트에 넣고 발언 id를 돌려준다(작업 큐를 거치지 않아 모델을 부르지 않는다, `eval/retrieval.py`가 쓴다). 모두 `contexa.dev-seed.enabled: true`일 때만 켜진다.

@@ -28,6 +28,17 @@ docker compose up -d db                 # 저장소 최상위에서
 ./gradlew :app:reversePort      # Android Studio의 Run으로 설치했다면 이것만 따로
 ```
 
+### 내 휴대폰에서 보기 (USB)
+
+휴대폰은 Android 8.0 이상이어야 한다. server는 이 컴퓨터에서 돌고, 휴대폰은 USB 선으로 그 server에 붙는다(데모 서버가 생기기 전까지는 APK만 받아서는 쓸 수 없다).
+
+1. 휴대폰 설정 → 휴대전화 정보 → 소프트웨어 정보 → "빌드번호"를 일곱 번 누른다. 개발자 옵션이 생긴다.
+2. 설정 → 개발자 옵션 → "USB 디버깅"을 켠다.
+3. USB로 연결하고, 휴대폰에 뜨는 "USB 디버깅을 허용할까요?"에서 허용을 누른다. `adb devices`에 `device`로 보이면 된다(`unauthorized`면 허용을 아직 안 누른 것).
+4. 위처럼 DB와 server를 띄우고 `./gradlew :app:installDebug`. 연결된 기기마다(에뮬레이터와 휴대폰이 함께 있어도) 포트를 돌리고 설치한다. 한 대에만 하려면 `ANDROID_SERIAL=<adb devices의 일련번호>`를 앞에 붙인다.
+
+USB를 뺐다 꽂았거나 휴대폰을 다시 켰다면 `./gradlew :app:reversePort`를 한 번 더 한다.
+
 화면은 Galaxy S26 Ultra의 기본 해상도(1080×2340, 19.5:9, 가로 384dp)에 맞춰 본다. 에뮬레이터를 그 모양으로 바꾸려면:
 
 ```sh
