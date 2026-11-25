@@ -34,6 +34,7 @@ import com.contexa.server.gateway.ContextGateway;
 import com.contexa.server.graph.DecisionGraph;
 import com.contexa.server.identity.IdentityAccess;
 import com.contexa.server.identity.NotAllowedException;
+import com.contexa.server.job.AiQuota;
 import com.contexa.server.job.Job;
 import com.contexa.server.job.JobOperation;
 import com.contexa.server.job.JobStatus;
@@ -70,15 +71,17 @@ public class GenerationWiki {
 	private final DecisionGraph graph;
 	private final IdentityAccess identity;
 	private final DocumentEvidence document;
+	private final AiQuota quota;
 
 	public GenerationWiki(JdbcClient jdbc, JobOperation jobs, ContextGateway gateway, DecisionGraph graph,
-			IdentityAccess identity, DocumentEvidence document) {
+			IdentityAccess identity, DocumentEvidence document, AiQuota quota) {
 		this.jdbc = jdbc;
 		this.jobs = jobs;
 		this.gateway = gateway;
 		this.graph = graph;
 		this.identity = identity;
 		this.document = document;
+		this.quota = quota;
 	}
 
 	/**
@@ -100,6 +103,7 @@ public class GenerationWiki {
 		if (language != null && !LANGS.contains(language)) {
 			throw new IllegalArgumentException("언어는 ko, en, ar 중 하나여야 한다: " + lang);
 		}
+		quota.check(caller.id());
 		UUID artifactId = UUID.randomUUID();
 		jdbc.sql("""
 				insert into artifact (id, project_id, kind, question, lang, requested_by, created_at)

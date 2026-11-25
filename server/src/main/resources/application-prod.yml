@@ -1,0 +1,32 @@
+# 배포용 설정. SPRING_PROFILES_ACTIVE=prod로 켠다(docs/contexa_deploy_plan.md).
+# 여기 없는 값은 application.yml을 따른다. 비밀값은 기본값 없이 환경 변수로만 받아, 빠지면 server가 켜지지 않는다.
+server:
+  # 컨테이너 안에서 듣는다. 밖에는 Caddy(80·443)만 열고 이 포트는 열지 않는다
+  address: 0.0.0.0
+  # Caddy가 붙인 X-Forwarded-For로 원래 접속 주소를 본다(로그인 시도 제한)
+  forward-headers-strategy: native
+
+spring:
+  datasource:
+    url: ${CONTEXA_DB_URL}
+    username: ${CONTEXA_DB_USER}
+    password: ${CONTEXA_DB_PASSWORD}
+  web:
+    resources:
+      # 개발용 페이지(static/index.html)를 내지 않는다. "/"는 index.html로 넘기기만 하므로 함께 404가 된다
+      add-mappings: false
+
+contexa:
+  worker:
+    token: ${CONTEXA_WORKER_TOKEN}
+    require-strong-token: true
+  dev-seed:
+    # 시연 데이터를 한 번 넣을 때만 내부 망에서 true로 켠다. 평소에는 false
+    enabled: ${CONTEXA_DEV_SEED:false}
+  auth:
+    # 쉼표로 나눈 이메일 목록. 비어 있으면 server가 켜지지 않는다
+    allowed-emails: ${CONTEXA_ALLOWED_EMAILS}
+    require-allowlist: true
+  ai:
+    # 한 사람이 24시간에 맡길 수 있는 문서 올리기 + 질문 수
+    daily-limit-per-user: ${CONTEXA_AI_DAILY_LIMIT:30}

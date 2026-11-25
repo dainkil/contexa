@@ -15,11 +15,16 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import com.contexa.server.contract.Caller;
 import com.contexa.server.identity.IdentityAccess;
+import com.contexa.server.identity.LoginThrottle;
 import com.contexa.server.identity.NotAllowedException;
 import com.contexa.server.identity.ProjectSummary;
 import com.contexa.server.identity.Role;
+import com.contexa.server.identity.SignupPolicy;
+import com.contexa.server.identity.UnauthenticatedException;
 
 /** 정문: 가입, 로그인, 프로젝트와 구성원 관리. 요청을 출입 관리의 함수 호출로 옮기기만 한다. */
 @RestController
@@ -27,20 +32,35 @@ import com.contexa.server.identity.Role;
 public class AuthController {
 
 	private final IdentityAccess identity;
+	private final SignupPolicy signupPolicy;
+	private final LoginThrottle throttle;
 
-	public AuthController(IdentityAccess identity) {
+	public AuthController(IdentityAccess identity, SignupPolicy signupPolicy, LoginThrottle throttle) {
 		this.identity = identity;
+		this.signupPolicy = signupPolicy;
+		this.throttle = throttle;
 	}
 
 	@PostMapping("/auth/signup")
 	public Map<String, UUID> signUp(@RequestBody SignUpRequest request) {
+		signupPolicy.check(request.email());
 		return Map.of("userId", identity.signUp(request.email(), request.displayName(), request.password()));
 	}
 
 	/** 토큰은 여기서 한 번만 돌려준다. 이후 요청마다 "Authorization: Bearer 토큰"으로 보낸다. */
 	@PostMapping("/auth/login")
-	public Map<String, String> login(@RequestBody LoginRequest request) {
-		return Map.of("token", identity.login(request.email(), request.password()));
+	public Map<String, String> login(@RequestBody LoginRequest request, HttpServletRequest http) {
+		// 배포에서는 Caddy 뒤에 있으므로 server.forward-headers-strategy로 원래 접속 주소를 받는다
+		String address = http.getRemoteAddr();
+		throttle.checkAllowed(request.email(), address);
+		try {
+			String token = identity.login(request.email(), request.password());
+			throttle.succeeded(request.email());
+			return Map.of("token", token);
+		} catch (UnauthenticatedException e) {
+			throttle.failed(request.email(), address);
+			throw e;
+		}
 	}
 
 	/** 로그인한 사람의 이메일과 이름. */
