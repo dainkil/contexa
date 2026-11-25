@@ -11,11 +11,12 @@ from typing import Any
 
 
 class ServerRejected(Exception):
-    """서버가 결과의 내용을 받아들이지 않았다(400). 이유를 보고 고쳐서 같은 임대증으로 다시 낼 수 있다."""
+    """서버가 결과의 내용을 받아들이지 않았다(400, 또는 LEASE_LOST가 아닌 409).
+    이유를 보고 고쳐서 같은 임대증으로 다시 낼 수 있다."""
 
 
 class LeaseLost(Exception):
-    """임대증이 더 이상 유효하지 않다(409). 이 작업은 내려놓아야 한다."""
+    """임대증이 더 이상 유효하지 않다(409 LEASE_LOST). 이 작업은 내려놓아야 한다."""
 
 
 class ServerError(Exception):
@@ -80,6 +81,11 @@ class ServerClient:
     def fail(self, lease: Lease, reason: str, retryable: bool) -> dict[str, Any]:
         return self._call("POST", f"/{lease.job_id}/failure", {"reason": reason, "retryable": retryable}, lease=lease)
 
+    def heartbeat(self, lease: Lease) -> str:
+        """아직 일하는 중이라고 알리고 임대를 늘린다. 새 만료 시각(ISO 8601)을 돌려준다.
+        임대가 끝났거나, 한 시도의 최대 작업 시간을 넘겼으면 LeaseLost다."""
+        return self._call("POST", f"/{lease.job_id}/heartbeat", lease=lease)["leaseExpiresAt"]
+
     def _call(self, method: str, path: str, body: Any = None, lease: Lease | None = None) -> Any:
         headers = {"X-Worker-Token": self._worker_token, "Accept": "application/json"}
         if lease is not None:
@@ -96,18 +102,23 @@ class ServerClient:
                 raw = response.read()
                 return json.loads(raw) if raw else None
         except urllib.error.HTTPError as error:
-            message = _message_of(error)
-            if error.code == 400:
-                raise ServerRejected(message) from error
-            if error.code == 409:
+            code, message = _error_of(error)
+            if error.code == 409 and code == "LEASE_LOST":
                 raise LeaseLost(message) from error
+            if error.code in (400, 409):
+                # 409의 나머지(NOT_POSSIBLE, STALE)는 결과가 지금 상태와 맞지 않는다는 뜻이다. 작업을 내려놓지 않는다
+                raise ServerRejected(message) from error
             raise ServerError(f"{error.code}: {message}") from error
         except urllib.error.URLError as error:
             raise ServerError(f"서버에 연결할 수 없다: {error.reason}") from error
+        except (TimeoutError, OSError) as error:  # 연결 뒤 응답을 읽다가 끊기거나 시간이 다 됐다
+            raise ServerError(f"서버 응답을 받지 못했다: {error}") from error
 
 
-def _message_of(error: urllib.error.HTTPError) -> str:
+def _error_of(error: urllib.error.HTTPError) -> tuple[str | None, str]:
+    """server의 오류 본문 {error, message}에서 코드와 메시지를 꺼낸다."""
     try:
-        return json.loads(error.read()).get("message", "") or error.reason
+        body = json.loads(error.read())
+        return body.get("error"), body.get("message", "") or str(error.reason)
     except Exception:  # 본문이 JSON이 아닐 수 있다
-        return str(error.reason)
+        return None, str(error.reason)

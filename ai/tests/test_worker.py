@@ -1,8 +1,12 @@
+import threading
+import time
 import unittest
+from unittest import mock
 
+from contexa_ai import worker as worker_module
 from contexa_ai.llm import LLMRefused, LLMTransient
 from contexa_ai.server import Lease, LeaseLost, ServerError, ServerRejected
-from contexa_ai.worker import Worker
+from contexa_ai.worker import Stopping, Worker, idle_seconds
 from tests.test_extract import ONTOLOGY, SPANS, STATE, card, link
 
 
@@ -15,6 +19,7 @@ class FakeServer:
         self._lose_lease = lose_lease
         self.submitted = []
         self.failures = []
+        self.heartbeats = 0
 
     def claim(self):
         lease, self._lease = self._lease, None
@@ -44,6 +49,10 @@ class FakeServer:
     def fail(self, lease, reason, retryable):
         self.failures.append((reason, retryable))
 
+    def heartbeat(self, lease):
+        self.heartbeats += 1
+        return "2026-11-25T00:10:00Z"
+
 
 class FakeLLM:
     """모델 흉내. 정해 둔 답을 차례로 돌려주고, 받은 자료를 기억한다."""
@@ -55,9 +64,21 @@ class FakeLLM:
     def structured(self, system, user, schema):
         self.prompts.append(user)
         answer = self._answers.pop(0)
-        if isinstance(answer, Exception):
+        if isinstance(answer, BaseException):
             raise answer
         return answer
+
+
+class SlowLLM(FakeLLM):
+    """답하는 데 시간이 걸리는 모델."""
+
+    def __init__(self, seconds, *answers):
+        super().__init__(*answers)
+        self._seconds = seconds
+
+    def structured(self, system, user, schema):
+        time.sleep(self._seconds)
+        return super().structured(system, user, schema)
 
 
 GOOD = {"cards": [card("c1", "TASK", "인쇄 발주", [1]), card("c2", "CONDITION", "예산 승인", [1])],
@@ -147,6 +168,72 @@ class WorkerTest(unittest.TestCase):
         with self.assertRaises(ServerError):
             Worker(server, FakeLLM(GOOD)).run_once()
         self.assertEqual(server.failures, [])
+
+    def test_오래_걸리는_작업_중에는_임대를_늘리고_한_번_닿지_않아도_계속_알린다(self):
+        class Flaky(FakeServer):
+            def heartbeat(self, lease):
+                self.heartbeats += 1
+                if self.heartbeats == 1:
+                    raise ServerError("연결이 잠깐 끊겼다")
+                return "2026-11-25T00:10:00Z"
+
+        server = Flaky("EXTRACT")
+
+        Worker(server, SlowLLM(0.3, GOOD), heartbeat_seconds=0.02).run_once()
+
+        self.assertGreaterEqual(server.heartbeats, 2)
+        self.assertEqual(len(server.submitted), 1)
+        self.assertEqual(server.failures, [])
+
+    def test_빨리_끝난_작업은_임대를_늘리지_않는다(self):
+        server = FakeServer("EXTRACT")
+
+        Worker(server, FakeLLM(GOOD), heartbeat_seconds=60).run_once()
+
+        self.assertEqual(server.heartbeats, 0)
+
+    def test_임대를_잃으면_다음_모델_호출_전에_멈추고_결과도_실패도_내지_않는다(self):
+        class Expired(FakeServer):
+            def heartbeat(self, lease):
+                self.heartbeats += 1
+                raise LeaseLost("한 시도의 최대 작업 시간을 넘겼다")
+
+        server = Expired("EXTRACT")
+        llm = SlowLLM(0.3, GOOD, GOOD)
+
+        with mock.patch.object(worker_module, "WINDOW", 1):  # 발언 2개 → 창 2개
+            Worker(server, llm, heartbeat_seconds=0.02).run_once()
+
+        self.assertEqual(server.heartbeats, 1)  # 잃은 뒤로는 더 알리지 않는다
+        self.assertEqual(len(llm.prompts), 1)   # 두 번째 창은 모델에게 보내지 않는다
+        self.assertEqual(server.submitted, [])
+        self.assertEqual(server.failures, [])
+
+    def test_꺼지라는_신호를_받으면_하던_일을_다시_해_볼_실패로_알리고_멈춘다(self):
+        server = FakeServer("EXTRACT")
+
+        with self.assertRaises(Stopping):
+            Worker(server, FakeLLM(Stopping("SIGTERM"))).run_once()
+
+        self.assertEqual(server.failures, [("일꾼이 작업 중에 꺼졌다", True)])
+        self.assertEqual(server.submitted, [])
+        self.assertFalse(any(t.name.startswith("heartbeat-") for t in threading.enumerate()))
+
+    def test_작업을_가져온_직후에_꺼져도_다시_해_볼_실패로_알린다(self):
+        # 처리에 들어가기 전(로그·추적을 여는 사이)에 신호가 와도 임대가 끝날 때까지 묶이지 않는다
+        server = FakeServer("EXTRACT")
+
+        with mock.patch.object(Worker, "_handle", side_effect=Stopping("SIGTERM")):
+            with self.assertRaises(Stopping):
+                Worker(server, FakeLLM()).run_once()
+
+        self.assertEqual(server.failures, [("일꾼이 작업 중에 꺼졌다", True)])
+
+    def test_서버에_닿지_않으면_쉬는_시간을_두_배씩_늘리고_상한을_둔다(self):
+        self.assertEqual(idle_seconds(2, 0), 2)
+        self.assertEqual(idle_seconds(2, 1), 4)
+        self.assertEqual(idle_seconds(2, 3), 16)
+        self.assertEqual(idle_seconds(2, 50), worker_module.MAX_IDLE_SECONDS)
 
     def test_모르는_종류의_일은_끝난_실패로_알린다(self):
         server = FakeServer("SUMMARIZE")

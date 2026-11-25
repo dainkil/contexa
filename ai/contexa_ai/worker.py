@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
+import threading
 import time
 from typing import Any
 
@@ -24,6 +26,17 @@ log = logging.getLogger("contexa.worker")
 WINDOW = 200
 # 서버가 후보를 거절했을 때, 이유를 모델에게 알려 주고 다시 뽑게 하는 횟수
 MAX_REPAIRS = 1
+# 일하는 중이라고 서버에 알리는 간격(초). 서버의 임대는 10분이라 그 안에 여러 번 알린다
+HEARTBEAT_SECONDS = 120.0
+# 서버에 닿지 않을 때 다음 시도까지 기다리는 시간의 상한(초)
+MAX_IDLE_SECONDS = 300.0
+
+
+class Stopping(BaseException):
+    """일꾼을 끄라는 신호(SIGTERM·SIGINT)를 받았다. 하던 일은 다시 해 볼 만한 실패로 알리고 끝낸다.
+
+    BaseException이라 작업 처리의 `except Exception`에 잡히지 않고 맨 위까지 올라간다.
+    """
 
 
 def _short(error: Exception, limit: int = 300) -> str:
@@ -32,23 +45,80 @@ def _short(error: Exception, limit: int = 300) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+class _Keepalive:
+    """작업하는 동안 따로 도는 스레드가 일정한 간격으로 임대를 늘린다.
+
+    모델 호출 하나가 몇 분씩 걸리거나 긴 문서를 여러 창으로 나눠 뽑으면 10분 임대를 넘길 수 있다. 그러면 서버가
+    같은 일을 다른 일꾼에게 다시 내줘 같은 문서를 두 번 뽑게 된다(모델 비용도 두 번). 임대를 잃으면 `lost`에
+    이유를 적고 멈춘다. 일꾼은 다음 모델 호출 전에 이 값을 본다.
+    """
+
+    def __init__(self, server: ServerClient, lease: Lease, interval: float):
+        self._server = server
+        self._lease = lease
+        self._interval = interval
+        self._stop = threading.Event()
+        self.lost: str | None = None
+        self._thread = threading.Thread(target=self._run, name=f"heartbeat-{lease.job_id}", daemon=True)
+
+    def __enter__(self) -> "_Keepalive":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval):
+            try:
+                self._server.heartbeat(self._lease)
+            except LeaseLost as error:
+                self.lost = str(error) or "임대를 잃었다"
+                log.warning("작업 %s 의 임대를 늘리지 못했다: %s", self._lease.job_id, self.lost)
+                return
+            except Exception as error:
+                # 서버에 잠깐 닿지 않아도 다음 차례에 다시 알린다. 임대가 끝나기 전에 여러 번 기회가 있다
+                log.warning("작업 %s 의 임대를 늘리지 못했다(다음에 다시): %s", self._lease.job_id, error)
+
+
 class Worker:
-    def __init__(self, server: ServerClient, llm: LLM):
+    def __init__(self, server: ServerClient, llm: LLM, heartbeat_seconds: float = HEARTBEAT_SECONDS):
         self._server = server
         self._llm = llm
         self._ontology: dict[str, Any] | None = None
+        self._heartbeat_seconds = heartbeat_seconds
+        self._keepalive: _Keepalive | None = None
 
     def run_once(self) -> bool:
         """일을 하나 가져와 처리한다. 가져올 일이 없으면 False."""
         lease = self._server.claim()
         if lease is None:
             return False
-        log.info("작업 %s (%s, 프로젝트 %s) 시작", lease.job_id, lease.job_type, lease.project_id)
-        with tracing.job(lease.job_id, lease.job_type, lease.project_id):
-            self._handle(lease)
+        # 임대증을 받은 뒤로는 어디서 꺼지든 바로 다시 맡길 수 있게 알린다. 알리지 않으면 임대가 끝날 때(10분)까지 묶인다
+        try:
+            log.info("작업 %s (%s, 프로젝트 %s) 시작", lease.job_id, lease.job_type, lease.project_id)
+            with tracing.job(lease.job_id, lease.job_type, lease.project_id):
+                self._handle(lease)
+        except Stopping:
+            self._report(lease, "일꾼이 작업 중에 꺼졌다", retryable=True)
+            raise
         return True
 
     def _handle(self, lease: Lease) -> None:
+        with _Keepalive(self._server, lease, self._heartbeat_seconds) as keepalive:
+            self._keepalive = keepalive
+            try:
+                self._process(lease)
+            finally:
+                self._keepalive = None
+
+    def _check_lease(self) -> None:
+        """임대를 잃었으면 더 일하지 않는다. 결과를 내도 받아 주지 않으니 모델 호출 비용만 든다."""
+        if self._keepalive is not None and self._keepalive.lost:
+            raise LeaseLost(self._keepalive.lost)
+
+    def _process(self, lease: Lease) -> None:
         try:
             if lease.job_type == "PARSE":
                 self._parse(lease)
@@ -70,6 +140,7 @@ class Worker:
         except ServerError:
             # 서버에 닿지 않으면 실패도 알릴 수 없다. 임대가 끝나면 서버가 다시 내준다
             raise
+        # Stopping(꺼지라는 신호)은 BaseException이라 여기서 잡히지 않는다. run_once가 알리고 끝낸다
         except Exception as error:
             # 분류하지 못한 오류(예: 모델 응답 모양이 달라 생긴 KeyError 같은 코드 오류). 되풀이될 테니 다시 시도하지 않는 실패로 알리고,
             # 일꾼은 다음 일로 넘어간다. 사람은 자료함의 "다시 시도"로 다시 맡길 수 있다
@@ -93,6 +164,7 @@ class Worker:
         nodes: list[dict[str, Any]] = []
         edges: list[dict[str, Any]] = []
         for start in range(0, len(spans), WINDOW):
+            self._check_lease()
             window = spans[start:start + WINDOW]
             user = extract.build_user_prompt(document, window, state, self._ontology)
             found = self._extract_window(user, window, state, prefix=f"w{start // WINDOW}:")
@@ -124,6 +196,7 @@ class Worker:
         except ServerRejected as error:
             if MAX_REPAIRS < 1 or len(spans) > WINDOW:
                 raise
+            self._check_lease()
             log.info("서버가 후보를 거절했다. 이유를 알려 주고 다시 뽑는다: %s", error)
             user = extract.build_user_prompt(document, spans, state, self._ontology) + (
                 f"\n\n앞서 낸 답은 서버가 이 이유로 받지 않았습니다: {error}\n"
@@ -140,6 +213,7 @@ class Worker:
         request = self._server.request(lease)
         feedback = ""
         for attempt in range(MAX_REPAIRS + 1):
+            self._check_lease()
             context = answer.gather(self._server, lease, request["question"])
             user = answer.build_user_prompt(request, context) + feedback
             output = self._llm.structured(answer.SYSTEM_PROMPT, user, answer.OUTPUT_SCHEMA)
@@ -162,6 +236,19 @@ class Worker:
             log.warning("실패를 알리지 못했다: %s", error)
 
 
+def idle_seconds(poll_seconds: float, failures: int) -> float:
+    """다음 일을 찾기 전에 쉴 시간. 서버에 닿지 않은 횟수만큼 두 배씩 늘리고 상한을 둔다."""
+    if failures <= 0:
+        return poll_seconds
+    return min(poll_seconds * (2 ** min(failures, 8)), MAX_IDLE_SECONDS)
+
+
+def _stop_on_signal(signum: int, frame: object) -> None:
+    # 두 번째 신호는 기다리지 않고 바로 끄도록 원래 동작으로 되돌린다
+    signal.signal(signum, signal.SIG_DFL)
+    raise Stopping(signal.Signals(signum).name)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Contexa AI 인턴")
     parser.add_argument("--once", action="store_true", help="기다리는 일을 한 번 훑고 끝낸다")
@@ -172,20 +259,28 @@ def main() -> None:
     worker = Worker(ServerClient(config.server_url, config.worker_token, config.worker_id), make_llm(config.model))
     log.info("일꾼 %s 시작. 서버 %s, 모델 %s, Langfuse %s", config.worker_id, config.server_url, config.model,
              "켜짐" if tracing.langfuse_enabled() else "꺼짐")
-    while True:
-        try:
-            worked = worker.run_once()
-        except ServerError as error:
-            log.warning("서버와 통신하지 못했다: %s", error)
-            worked = False
-        except Exception:
-            # 작업 처리 밖에서 난 오류. 일꾼은 죽지 않고 잠시 쉬었다가 다시 일을 찾는다
-            log.exception("예상하지 못한 오류")
-            worked = False
-        if not worked:
-            if args.once:
-                return
-            time.sleep(config.poll_seconds)
+    signal.signal(signal.SIGTERM, _stop_on_signal)
+    signal.signal(signal.SIGINT, _stop_on_signal)
+    failures = 0
+    try:
+        while True:
+            try:
+                worked = worker.run_once()
+                failures = 0
+            except ServerError as error:
+                failures += 1
+                log.warning("서버와 통신하지 못했다(%d번 연속): %s", failures, error)
+                worked = False
+            except Exception:
+                # 작업 처리 밖에서 난 오류. 일꾼은 죽지 않고 잠시 쉬었다가 다시 일을 찾는다
+                log.exception("예상하지 못한 오류")
+                worked = False
+            if not worked:
+                if args.once:
+                    return
+                time.sleep(idle_seconds(config.poll_seconds, failures))
+    except Stopping as stop:
+        log.info("%s 신호를 받아 일꾼을 끈다", stop)
 
 
 if __name__ == "__main__":

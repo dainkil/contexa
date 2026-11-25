@@ -80,7 +80,7 @@ class FakeServer:
         self.failures.append((reason, retryable))
 
 
-GOOD = {"answer": "예산 승인 전이라 인쇄는 보류입니다 [s1]. 인쇄 발주는 그다음입니다 [s2][s1].",
+GOOD = {"found": True, "answer": "예산 승인 전이라 인쇄는 보류입니다 [s1]. 인쇄 발주는 그다음입니다 [s2][s1].",
         "used_facts": ["f1", "f2"], "used_relations": ["r1"], "cited_sources": ["s1", "s2"]}
 
 
@@ -141,12 +141,12 @@ class ToDraft(unittest.TestCase):
         self.assertCountEqual(draft["usedNodes"], [PRINT, BUDGET, SPAN22, SPAN23])
 
     def test_줄을_썼으면_그_양끝_카드도_쓴_것으로_친다(self):
-        draft = answer.to_draft({"answer": "아랍어 문구 검토가 먼저일 수 있습니다(미확인).", "used_facts": [],
-                                 "used_relations": ["r2", "r99"], "cited_sources": []}, self.context)
+        draft = answer.to_draft({"found": True, "answer": "아랍어 문구 검토가 먼저일 수 있습니다(미확인) [s1].",
+                                 "used_facts": [], "used_relations": ["r2", "r99"], "cited_sources": []}, self.context)
 
-        self.assertCountEqual(draft["usedNodes"], [PRINT, ARABIC])
+        self.assertCountEqual(draft["usedNodes"], [PRINT, ARABIC, SPAN22])
         self.assertEqual(draft["usedEdges"], [{"id": "edge-arabic", "version": 1}])
-        self.assertEqual(draft["citations"], [])
+        self.assertEqual(draft["citations"], [SPAN22])
 
     def test_보여_주지_않은_발언을_인용했거나_본문이_비었으면_거절한다(self):
         with self.assertRaisesRegex(answer.AnswerInvalid, r"\[s9\]"):
@@ -155,10 +155,39 @@ class ToDraft(unittest.TestCase):
             answer.to_draft({**GOOD, "answer": "  "}, self.context)
 
     def test_없는_이름표는_무시한다(self):
-        draft = answer.to_draft({"answer": "기록에서 찾을 수 없습니다.", "used_facts": ["f42"], "used_relations": [],
-                                 "cited_sources": ["s42"]}, self.context)
+        draft = answer.to_draft({"found": True, "answer": "인쇄는 보류입니다 [s1].", "used_facts": ["f42"],
+                                 "used_relations": [], "cited_sources": ["s42"]}, self.context)
 
-        self.assertEqual(draft, {"content": "기록에서 찾을 수 없습니다.", "usedNodes": [], "usedEdges": [], "citations": []})
+        self.assertEqual(draft, {"content": "인쇄는 보류입니다 [1].", "usedNodes": [SPAN22], "usedEdges": [],
+                                 "citations": [SPAN22]})
+
+    def test_인용이_아닌_대괄호_숫자는_괄호로_바꿔_인용과_섞이지_않게_한다(self):
+        # 서버와 앱은 본문의 [n]을 모두 인용으로 읽는다. [2026]이 남으면 없는 인용이라 답 전체가 거절된다
+        draft = answer.to_draft({"found": True, "answer": "[2026] 예산 신청서의 [1]번 항목대로 인쇄는 보류입니다 [s1]."},
+                                self.context)
+        self.assertEqual(draft["content"], "(2026) 예산 신청서의 (1)번 항목대로 인쇄는 보류입니다 [1].")
+
+        draft = answer.to_draft({"found": False, "answer": "[2026] 기록에서 답을 찾지 못했습니다."}, self.context)
+        self.assertEqual(draft["content"], "(2026) 기록에서 답을 찾지 못했습니다.")
+
+    def test_근거를_찾았다면서_인용이_하나도_없으면_거절한다(self):
+        # 설계 원칙 2: 모든 주장에는 원문 위치가 붙는다. 인용 없는 답은 사실처럼 보이지만 확인할 길이 없다
+        for found in (True, None):
+            with self.assertRaisesRegex(answer.AnswerInvalid, "인용이 하나도 없다"):
+                answer.to_draft({**GOOD, "found": found, "answer": "인쇄는 승인됐습니다."}, self.context)
+
+    def test_근거를_찾지_못했다는_짧은_답은_인용_없이_내고_참고한_것도_비운다(self):
+        draft = answer.to_draft({"found": False, "answer": "기록에서 답을 찾지 못했습니다.", "used_facts": ["f1"],
+                                 "used_relations": ["r1"], "cited_sources": ["s1"]}, self.context)
+
+        self.assertEqual(draft, {"content": "기록에서 답을 찾지 못했습니다.", "usedNodes": [], "usedEdges": [],
+                                 "citations": [], "noEvidence": True})
+
+    def test_근거를_찾지_못했다면서_인용하거나_길게_쓰면_거절한다(self):
+        with self.assertRaisesRegex(answer.AnswerInvalid, "인용했다"):
+            answer.to_draft({**GOOD, "found": False, "answer": "찾지 못했지만 보류인 듯합니다 [s1]."}, self.context)
+        with self.assertRaisesRegex(answer.AnswerInvalid, "200자"):
+            answer.to_draft({**GOOD, "found": False, "answer": "가" * 201}, self.context)
 
 
 class GenerateJob(unittest.TestCase):
@@ -199,6 +228,26 @@ class GenerateJob(unittest.TestCase):
 
         self.assertEqual(server.submitted, [])
         self.assertEqual(server.failures, [("또 바뀌었다", False)])
+
+    def test_인용_없는_답은_이유를_알려_주고_한_번_다시_쓰게_한다(self):
+        server = FakeServer()
+        llm = FakeLLM({**GOOD, "answer": "인쇄는 보류입니다."}, GOOD)
+
+        Worker(server, llm).run_once()
+
+        self.assertIn("인용이 하나도 없다", llm.prompts[1])
+        self.assertEqual(server.submitted[0]["draft"]["citations"], [SPAN22, SPAN23])
+        self.assertEqual(server.failures, [])
+
+    def test_근거를_찾지_못했다는_답은_그대로_낸다(self):
+        server = FakeServer()
+        llm = FakeLLM({"found": False, "answer": "기록에서 답을 찾지 못했습니다.", "used_facts": [],
+                       "used_relations": [], "cited_sources": []})
+
+        Worker(server, llm).run_once()
+
+        self.assertTrue(server.submitted[0]["draft"]["noEvidence"])
+        self.assertEqual(server.failures, [])
 
     def test_모델이_거절하면_끝난_실패로_알린다(self):
         server = FakeServer()

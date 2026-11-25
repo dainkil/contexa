@@ -4,7 +4,8 @@
    작업을 시킨 사용자가 볼 수 있는 것만 온다.
 2. 모델에게 카드에는 f1, 줄에는 r1, 발언에는 s1 같은 이름표를 붙여 보여 주고 답을 쓰게 한다.
 3. 모델이 본문에 적은 [s3] 같은 인용이 실제로 보여 준 발언인지 확인하고, [1], [2] 번호로 바꾼다.
-   보여 주지 않은 발언을 인용했으면 그 답은 버린다.
+   보여 주지 않은 발언을 인용했거나 인용이 하나도 없으면 그 답은 버린다(모든 주장에는 원문 위치가 붙는다).
+   인용 없이 내는 것은 모델이 "기록에서 근거를 찾지 못했다"(found: false)고 한 짧은 답뿐이다.
 4. 답이 참고한 카드·줄·발언을 읽었을 때의 버전과 함께 낸다. 서버는 그사이 바뀐 것이 있으면 받지 않는다.
 """
 
@@ -22,6 +23,10 @@ _TRACEABLE = ("TASK", "CONDITION", "DECISION_ITEM", "DECISION_EVENT")
 _MAX_TRACES = 5
 _MAX_FACTS = 150
 _MARKER = re.compile(r"\[s(\d+)\]")
+# 모델이 인용이 아닌 곳에 쓴 대괄호 숫자([2026], [1]번 항목). 서버와 앱은 본문의 [n]을 모두 인용으로 읽는다
+_BARE_NUMBER = re.compile(r"\[(\d+)\]")
+# 근거를 찾지 못했다는 답의 최대 길이(글자). 서버는 300자까지 받는다
+_NO_EVIDENCE_MAX = 200
 
 _LANG = {"ko": "한국어", "en": "영어", "ar": "아랍어"}
 _STATUS = {"CONFIRMED": "확인됨", "CANDIDATE": "AI 후보(사람이 아직 확인하지 않음)"}
@@ -39,8 +44,9 @@ SYSTEM_PROMPT = prompts.load("answer")
 OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["answer", "used_facts", "used_relations", "cited_sources"],
+    "required": ["found", "answer", "used_facts", "used_relations", "cited_sources"],
     "properties": {
+        "found": {"type": "boolean"},
         "answer": {"type": "string"},
         "used_facts": {"type": "array", "items": {"type": "string"}},
         "used_relations": {"type": "array", "items": {"type": "string"}},
@@ -142,10 +148,22 @@ def build_user_prompt(request: dict[str, Any], context: Context) -> str:
 
 
 def to_draft(output: dict[str, Any], context: Context) -> dict[str, Any]:
-    """모델의 답을 서버가 받는 글 모양으로 바꾼다. 보여 주지 않은 발언을 인용했으면 거절한다."""
+    """모델의 답을 서버가 받는 글 모양으로 바꾼다.
+
+    보여 주지 않은 발언을 인용했거나, 근거를 찾았다면서 인용이 하나도 없으면 거절한다.
+    근거를 찾지 못했다(found: false)는 답은 인용 없는 짧은 글일 때만 받는다.
+    """
     answer = (output.get("answer") or "").strip()
     if not answer:
         raise AnswerInvalid("본문이 비어 있다")
+    # 인용이 아닌 [2026]은 (2026)으로 바꾼다. 그대로 두면 없는 인용으로 읽혀 답 전체가 거절되거나 엉뚱한 발언에 이어진다
+    answer = _BARE_NUMBER.sub(r"(\1)", answer)
+    if output.get("found") is False:
+        if _MARKER.search(answer):
+            raise AnswerInvalid("근거를 찾지 못했다면서 발언을 인용했다. 찾았으면 found를 true로 둔다")
+        if len(answer) > _NO_EVIDENCE_MAX:
+            raise AnswerInvalid(f"근거를 찾지 못했다는 답은 {_NO_EVIDENCE_MAX}자 안의 한두 문장이어야 한다")
+        return {"content": answer, "usedNodes": [], "usedEdges": [], "citations": [], "noEvidence": True}
 
     order: list[str] = []
     for number in _MARKER.findall(answer):
@@ -155,6 +173,9 @@ def to_draft(output: dict[str, Any], context: Context) -> dict[str, Any]:
         if name not in order:
             order.append(name)
     # 본문의 [s7]을 등장한 순서대로 [1], [2] 로 바꾼다
+    if not order:
+        raise AnswerInvalid("인용이 하나도 없다. 사실을 말하는 문장마다 근거 발언을 [s3]처럼 적어야 한다. "
+                            "답할 근거가 없으면 found를 false로 둔다")
     content = _MARKER.sub(lambda match: f"[{order.index('s' + match.group(1)) + 1}]", answer)
     citations = [context.sources[name]["span"] for name in order]
 

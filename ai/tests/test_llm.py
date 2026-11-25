@@ -150,6 +150,8 @@ class RealChatModelWiringTest(unittest.TestCase):
         chat = llm._chat
         self.assertEqual(type(chat).__name__, "ChatAnthropic")
         self.assertEqual((chat.model, chat.max_tokens), ("claude-opus-5-5", 16000))
+        # 응답을 끝없이 기다리지 않는다. 그 뒤의 다시 시도는 server 작업 큐가 간격을 두고 맡는다
+        self.assertEqual((chat.default_request_timeout, chat.max_retries), (600.0, 2))
         payload = chat._get_request_payload(
             [SystemMessage(content="지시"), HumanMessage(content="자료")],
             output_config={"format": {"type": "json_schema", "schema": SCHEMA}})

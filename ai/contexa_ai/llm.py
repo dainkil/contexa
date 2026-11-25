@@ -18,6 +18,13 @@ from . import tracing
 
 DEFAULT_PROVIDER = "anthropic"
 MAX_TOKENS = 16000
+# 한 번의 요청을 기다리는 최대 시간(초). 이보다 오래 걸리면 끊고 잠깐의 문제(LLMTransient)로 본다.
+# 긴 회의록은 출력(최대 MAX_TOKENS)을 다 쓰는 데 몇 분이 걸리므로 SDK 기본값(10분)과 같게 둔다. 더 짧으면 같은 입력이
+# 매번 시간 초과로 끝나 비용만 여러 번 든다. 일꾼은 기다리는 동안에도 임대를 늘리고, 작업 전체는 server가 정한
+# 최대 시간(60분)을 넘지 못한다.
+REQUEST_TIMEOUT = 600.0
+# SDK가 스스로 다시 보내는 횟수(요청 제한·연결 오류). 그 뒤의 다시 시도는 server 작업 큐가 간격을 두고 맡는다.
+MAX_RETRIES = 2
 
 # 잠깐의 문제로 보는 예외 이름. 공급자 SDK들(anthropic, openai 등)이 같은 이름을 쓴다.
 _TRANSIENT = {"RateLimitError", "APIConnectionError", "APITimeoutError", "InternalServerError", "OverloadedError"}
@@ -75,6 +82,7 @@ class ChatModelLLM:
             from langchain.chat_models import init_chat_model  # 이 클래스를 쓸 때만 필요하다
 
             chat_model = init_chat_model(self.model, model_provider=self.provider, max_tokens=MAX_TOKENS,
+                                         timeout=REQUEST_TIMEOUT, max_retries=MAX_RETRIES,
                                          **provider_options(self.provider))
         self._chat = chat_model
 
