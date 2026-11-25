@@ -23,6 +23,7 @@ import com.contexa.server.generation.GenerationWiki;
 import com.contexa.server.identity.IdentityAccess;
 import com.contexa.server.identity.NotAllowedException;
 import com.contexa.server.identity.Role;
+import com.contexa.server.job.AiQuota;
 import com.contexa.server.job.Job;
 import com.contexa.server.job.JobNotFoundException;
 import com.contexa.server.job.JobOperation;
@@ -49,19 +50,22 @@ public class Pipeline {
 	private final ReviewImpact review;
 	private final IdentityAccess identity;
 	private final GenerationWiki generation;
+	private final AiQuota quota;
 
 	public Pipeline(JobOperation jobs, DocumentEvidence document, ReviewImpact review, IdentityAccess identity,
-			GenerationWiki generation) {
+			GenerationWiki generation, AiQuota quota) {
 		this.generation = generation;
 		this.jobs = jobs;
 		this.document = document;
 		this.review = review;
 		this.identity = identity;
+		this.quota = quota;
 	}
 
 	/** 문서를 올리고 "자르기" 작업을 맡긴다. 프로젝트 구성원인 사람만 할 수 있다. */
 	@Transactional
 	public IngestStarted startIngest(Caller caller, DocumentInput input) {
+		quota.check(caller.id());
 		SourceVersionRef version = document.registerDocument(caller, input);
 		return new IngestStarted(version, enqueueParse(caller, version));
 	}
@@ -69,6 +73,7 @@ public class Pipeline {
 	/** 이미 있는 문서의 새 판을 올리고 "자르기" 작업을 맡긴다. */
 	@Transactional
 	public IngestStarted startIngestOfNewVersion(Caller caller, UUID documentId, String content) {
+		quota.check(caller.id());
 		SourceVersionRef version = document.addVersion(caller, documentId, content);
 		return new IngestStarted(version, enqueueParse(caller, version));
 	}

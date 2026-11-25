@@ -2,7 +2,9 @@ package com.contexa.server.api;
 
 import java.util.Map;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -15,9 +17,11 @@ import com.contexa.server.generation.ArtifactNotFoundException;
 import com.contexa.server.graph.EdgeNotFoundException;
 import com.contexa.server.graph.EdgeVersionConflictException;
 import com.contexa.server.identity.NotAllowedException;
+import com.contexa.server.identity.TooManyAttemptsException;
 import com.contexa.server.identity.UnauthenticatedException;
 import com.contexa.server.job.JobNotFoundException;
 import com.contexa.server.job.LeaseRejectedException;
+import com.contexa.server.job.QuotaExceededException;
 import com.contexa.server.review.ReviewNotFoundException;
 import com.contexa.server.review.ReviewVersionConflictException;
 
@@ -68,6 +72,21 @@ public class ApiExceptionHandler {
 	@ResponseStatus(HttpStatus.CONFLICT)
 	public Map<String, String> notPossible(IllegalStateException e) {
 		return body("NOT_POSSIBLE", e);
+	}
+
+	/** 로그인을 너무 많이 틀렸다. Retry-After(초) 뒤에 다시 할 수 있다. */
+	@ExceptionHandler(TooManyAttemptsException.class)
+	public ResponseEntity<Map<String, String>> tooManyAttempts(TooManyAttemptsException e) {
+		long seconds = Math.max(1, (e.retryAfter().toMillis() + 999) / 1000);
+		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+				.header(HttpHeaders.RETRY_AFTER, String.valueOf(seconds)).body(body("TOO_MANY_ATTEMPTS", e));
+	}
+
+	/** 오늘 맡길 수 있는 AI 작업(문서 올리기·질문)을 다 썼다. */
+	@ExceptionHandler(QuotaExceededException.class)
+	@ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
+	public Map<String, String> quotaExceeded(QuotaExceededException e) {
+		return body("QUOTA_EXCEEDED", e);
 	}
 
 	private static Map<String, String> body(String error, RuntimeException e) {

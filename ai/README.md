@@ -19,7 +19,8 @@
 cd ai
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .                      # LangChain(langchain, langchain-anthropic)을 설치한다
-export ANTHROPIC_API_KEY=...          # Claude API 키. 파일에 적지 않는다
+# 모델 API 키는 저장소 최상위 .env에 ANTHROPIC_API_KEY=... 로 적는다(git이 무시한다).
+# 일꾼이 켜질 때 읽고, 이미 있는 환경 변수는 덮어쓰지 않는다. 셸 설정 파일에는 export하지 않는다
 python -m contexa_ai.worker           # 계속 돌면서 일을 기다린다
 python -m contexa_ai.worker --once    # 기다리는 일을 한 번 훑고 끝낸다
 ```

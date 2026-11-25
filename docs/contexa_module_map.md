@@ -550,7 +550,8 @@ Python이 보낸 사용자 ID는 믿지 않는다. `Caller`는 항상 서버가 
 지금 구현된 것 (6단계까지):
 
 ```
-AuthController      POST /api/v1/auth/signup, /api/v1/auth/login
+AuthController      POST /api/v1/auth/signup, /api/v1/auth/login, GET /api/v1/auth/me
+                    POST /api/v1/auth/me/delete                        {password}  계정 삭제 → pipeline.AccountDeletion
                     GET·POST /api/v1/projects
                     PUT  /api/v1/projects/{id}/members                 {email, role}
                     POST·DELETE /api/v1/projects/{id}/agent-tokens
@@ -570,7 +571,8 @@ ReviewController    GET  /api/v1/projects/{id}/reviews[?state=&ownerType=&limit=
                     GET  /api/v1/projects/{id}/impacts?type=&id=
                     GET  /api/v1/projects/{id}/rechecks[?limit=&after=]
                     POST /api/v1/projects/{id}/rechecks/{type}/{nodeId}/resolve
-ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 낡은 버전·불가능한 상태 409, 잘못된 값 400
+ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 낡은 버전·불가능한 상태 409, 잘못된 값 400,
+                    로그인 시도 초과·하루 AI 작업 수 초과 429
 ```
 - 요청자는 `CallerResolver`가 `Authorization: Bearer 토큰`과 주소의 `{projectId}`로 `identity-access.authenticate`를 불러 만든다. 요청 본문이나 주소의 사용자 id는 쓰지 않는다.
 - 외부 AI 에이전트용 출입구(`McpController`): `POST /mcp`. MCP의 HTTP 방식 중 가장 단순한 형태를 직접 구현했다. JSON-RPC 요청 하나에 JSON 응답 하나를 돌려주고, 연결을 유지하지 않는다(`GET /mcp`는 405). 지원하는 메서드는 `initialize`, `ping`, `tools/list`, `tools/call`이고 프로토콜 버전은 `2025-06-18`, `2025-03-26`이다.
@@ -578,11 +580,13 @@ ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 낡은 
   - 에이전트는 OWNER가 발급한 에이전트 토큰으로 들어온다(`identity-access.authenticateAgent`). 토큰이 발급된 프로젝트만 읽는다. 토큰의 범위는 발급할 때 정한다: `EXTERNAL`(기본값, 외부 공유가 허용된 문서의 내용만) 또는 `INTERNAL`(구성원 모두가 읽는 문서의 내용까지). 어느 쪽이든 개인 메모는 읽지 못한다. 사람의 로그인 토큰은 받지 않는다.
   - 도구를 실행하다 난 문제(없는 카드, 틀린 값, 근거 없는 제안)는 프로토콜 오류가 아니라 도구 결과의 `isError: true`로 알린다. 에이전트가 읽고 고쳐서 다시 부를 수 있다.
   - `Origin` 헤더가 붙은 요청은 `contexa.mcp.allowed-origins`에 있을 때만 받는다(브라우저의 다른 사이트가 부르는 것을 막기 위해). 기본값은 빈 목록이다.
-- 질문·답변: `POST /api/v1/projects/{id}/generations {question, kind?, lang?}`, `GET /generations`, `GET /generations/{artifactId}`. 근거 검색: `POST /api/v1/projects/{id}/context/search {query, k?}`(찾을 내용은 주소가 아니라 본문으로 보낸다).
+- 질문·답변: `POST /api/v1/projects/{id}/generations {question, kind?, lang?}`, `GET /generations`, `GET /generations/{artifactId}`. 답변 신고: `POST /generations/{artifactId}/reports {reason, note?}`(요청한 사람만, 테이블 `artifact_report` V13). 근거 검색: `POST /api/v1/projects/{id}/context/search {query, k?}`(찾을 내용은 주소가 아니라 본문으로 보낸다).
 - 뒷문에 글쓰기용 주소 추가: `GET /internal/v1/jobs/{jobId}/request`, `POST /{jobId}/context/search`, `GET /{jobId}/context/trace`.
 - 문서 올리기: `POST /api/v1/projects/{id}/documents`, `/documents/{documentId}/versions` → `pipeline.startIngest`. 작업 상태: `GET /api/v1/projects/{id}/jobs`, `/jobs/{jobId}`(볼 수 있는 작업만). 다시 맡기기: `POST /jobs/{jobId}/retry` → `pipeline.retryJob`(실패한 작업만, 시킨 사람이나 OWNER만, 시도 횟수는 처음부터).
 - 문서 읽기: `GET /api/v1/projects/{id}/documents` → `pipeline.listDocuments`(읽을 수 있는 문서 + 최신 판 처리 상태), `GET /documents/{documentId}[?version=N | ?span=spanId]` → `pipeline.openDocument`(판 목록과 처리 상태, 연 판의 발언 또는 자르기 전 원문). 읽을 수 없는 문서는 404. version과 span을 함께 주면 400.
 - 뒷문(`InternalJobController`, AI 인턴 전용): `GET /internal/v1/jobs/ontology`, `POST /claim`, `GET /{jobId}/content`, `/{jobId}/spans`, `/{jobId}/context/state`, `POST /{jobId}/result`, `/{jobId}/failure`. 모든 요청에 일꾼 토큰(`X-Worker-Token`)이, 일을 가져간 뒤에는 임대증(`X-Attempt-Id`, `X-Lease-Token`)이 필요하다. 사람의 로그인 토큰으로는 들어올 수 없다. 누구의 권한으로 읽을지는 서버가 작업 기록에서 정한다(`identity-access.callerForJob`).
+- 배포 보호(prod 프로필, `docs/contexa_deploy_plan.md`): 가입 허용 목록 `identity.SignupPolicy`, 로그인 시도 제한 `identity.LoginThrottle`, 사용자당 하루 AI 작업 수 `job.AiQuota`(`pipeline.startIngest`·`generation.requestGeneration`이 부른다), 일꾼 토큰 검사 `api.WorkerTokenCheck`.
+- 계정 삭제(`pipeline.AccountDeletion`): 나 혼자인 프로젝트는 각 모듈의 `purgeProject`로 통째로 지운다. 함께 쓰는 프로젝트에서는 `generation.deleteArtifactsOf` → `review.Erasure.forgetSpans`(개인 메모 발언에만 기대던 카드·줄) → `document.deleteDocuments` → `job.deleteJobs` → `identity.leaveProject`(하나뿐인 OWNER면 가장 먼저 들어온 REVIEWER, 없으면 MEMBER에게 넘김) 순서로 지운다. 마지막에 `identity.anonymize`가 토큰을 없애고 이메일·이름·비밀번호를 지운다(행은 남아 "탈퇴한 사용자"로 보인다). 카드·줄·검토 기록을 지우는 함수는 이 흐름에서만 쓴다.
 - 개발용 패키지 `dev`: `POST /dev/seed`가 예시 사용자·프로젝트·전사문을 만들고, 실제 흐름과 같은 길(`submitCandidates` → `applyAction`)로 "국제교류 행사" 장면을 넣은 뒤 로그인 토큰을 돌려준다. `POST /dev/demo`는 시연 계정과 "국제교류의 밤 준비" 프로젝트를 만든다. `POST /dev/eval/corpus {title, documents:[{title, kind, spans:[{speakerLabel, text}]}]}`는 평가용으로, 이미 잘린 문서를 평가 계정의 새 프로젝트에 넣고 발언 id를 돌려준다(작업 큐를 거치지 않아 모델을 부르지 않는다, `eval/retrieval.py`가 쓴다). 모두 `contexa.dev-seed.enabled: true`일 때만 켜진다.
 - `static/index.html`: 예시 데이터를 넣고 답변서와 검토함을 눈으로 확인하는 개발용 페이지.
 

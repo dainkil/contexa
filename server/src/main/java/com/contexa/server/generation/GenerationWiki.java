@@ -13,6 +13,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +36,7 @@ import com.contexa.server.gateway.ContextGateway;
 import com.contexa.server.graph.DecisionGraph;
 import com.contexa.server.identity.IdentityAccess;
 import com.contexa.server.identity.NotAllowedException;
+import com.contexa.server.job.AiQuota;
 import com.contexa.server.job.Job;
 import com.contexa.server.job.JobOperation;
 import com.contexa.server.job.JobStatus;
@@ -57,6 +60,8 @@ import com.contexa.server.job.JobType;
 @Service
 public class GenerationWiki {
 
+	private static final Logger log = LoggerFactory.getLogger(GenerationWiki.class);
+
 	private static final Set<String> LANGS = Set.of("ko", "en", "ar");
 	private static final int MAX_QUESTION = 2000;
 
@@ -70,15 +75,17 @@ public class GenerationWiki {
 	private final DecisionGraph graph;
 	private final IdentityAccess identity;
 	private final DocumentEvidence document;
+	private final AiQuota quota;
 
 	public GenerationWiki(JdbcClient jdbc, JobOperation jobs, ContextGateway gateway, DecisionGraph graph,
-			IdentityAccess identity, DocumentEvidence document) {
+			IdentityAccess identity, DocumentEvidence document, AiQuota quota) {
 		this.jdbc = jdbc;
 		this.jobs = jobs;
 		this.gateway = gateway;
 		this.graph = graph;
 		this.identity = identity;
 		this.document = document;
+		this.quota = quota;
 	}
 
 	/**
@@ -100,6 +107,7 @@ public class GenerationWiki {
 		if (language != null && !LANGS.contains(language)) {
 			throw new IllegalArgumentException("언어는 ko, en, ar 중 하나여야 한다: " + lang);
 		}
+		quota.check(caller.id());
 		UUID artifactId = UUID.randomUUID();
 		jdbc.sql("""
 				insert into artifact (id, project_id, kind, question, lang, requested_by, created_at)
@@ -234,6 +242,76 @@ public class GenerationWiki {
 
 	public record ArtifactSummary(UUID id, GenKind kind, String question, String lang, boolean published,
 			Instant createdAt) {
+	}
+
+	// ---- 신고 ----
+
+	/** 신고에 덧붙이는 글의 최대 길이. */
+	static final int MAX_REPORT_NOTE = 500;
+
+	/**
+	 * AI가 쓴 산출물을 신고한다. 산출물을 연 사람(요청한 사람)만 신고할 수 있다.
+	 * 운영자가 볼 수 있게 로그에 남긴다. 로그에는 본문·질문을 적지 않는다.
+	 *
+	 * @return 신고 id
+	 */
+	@Transactional
+	public UUID reportArtifact(Caller caller, UUID artifactId, ReportReason reason, String note) {
+		Objects.requireNonNull(reason, "reason");
+		Row row = find(caller.projectId(), artifactId, false);
+		if (caller.kind() != Caller.Kind.USER || !row.requestedBy().equals(caller.id())) {
+			throw new ArtifactNotFoundException(artifactId);
+		}
+		String text = note == null || note.isBlank() ? null : note.strip();
+		if (text != null && text.length() > MAX_REPORT_NOTE) {
+			throw new IllegalArgumentException("신고 내용은 " + MAX_REPORT_NOTE + "자까지 쓸 수 있다");
+		}
+		if (reason == ReportReason.OTHER && text == null) {
+			throw new IllegalArgumentException("기타 이유로 신고할 때는 내용을 적어 주세요");
+		}
+		UUID id = UUID.randomUUID();
+		jdbc.sql("""
+				insert into artifact_report (id, project_id, artifact_id, reported_by, reason, note)
+				values (:id, :projectId, :artifactId, :userId, :reason, :note)
+				""")
+				.param("id", id).param("projectId", caller.projectId()).param("artifactId", artifactId)
+				.param("userId", caller.id()).param("reason", reason.name()).param("note", text).update();
+		log.warn("artifact_report id={} project={} artifact={} kind={} reason={}", id, caller.projectId(), artifactId,
+				row.kind(), reason);
+		return id;
+	}
+
+	// ---- 계정 삭제 ----
+
+	/**
+	 * 이 사람이 요청한 산출물(질문과 답변)을 지운다. 계정 삭제 전용. 산출물은 요청한 사람만 읽으므로 남길 까닭이 없다.
+	 *
+	 * @return 지운 산출물 id. 그 작업 기록은 작업 관리가 지운다
+	 */
+	@Transactional
+	public List<UUID> deleteArtifactsOf(UUID projectId, UUID userId) {
+		List<UUID> ids = jdbc.sql("select id from artifact where project_id = :projectId and requested_by = :userId")
+				.param("projectId", projectId).param("userId", userId).query(UUID.class).list();
+		if (ids.isEmpty()) {
+			return ids;
+		}
+		graph.deleteEdges(projectId, graph.edgesTouching(projectId, ids).stream().map(Edge::id).toList());
+		for (String sql : List.of("delete from artifact_report where artifact_id in (:ids)",
+				"delete from artifact_ref where artifact_id in (:ids)",
+				"delete from artifact where id in (:ids)")) {
+			jdbc.sql(sql).param("ids", ids).update();
+		}
+		return ids;
+	}
+
+	/** 프로젝트의 산출물을 모두 지운다. 계정 삭제로 프로젝트를 없앨 때만 쓴다. 줄은 결재 창구가 지운다. */
+	@Transactional
+	public void purgeProject(UUID projectId) {
+		for (String sql : List.of("delete from artifact_report where project_id = :projectId",
+				"delete from artifact_ref where artifact_id in (select id from artifact where project_id = :projectId)",
+				"delete from artifact where project_id = :projectId")) {
+			jdbc.sql(sql).param("projectId", projectId).update();
+		}
 	}
 
 	// ---- 내부 ----

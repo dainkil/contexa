@@ -12,7 +12,9 @@ const val STALE_MESSAGE = "그사이 다른 사람이 먼저 바꿨습니다. �
 
 /**
  * server의 오류 응답 본문(ApiExceptionHandler).
- * error는 NOT_FOUND, BAD_REQUEST, UNAUTHENTICATED, FORBIDDEN, STALE, NOT_POSSIBLE 중 하나다.
+ * error는 NOT_FOUND, BAD_REQUEST, UNAUTHENTICATED, FORBIDDEN, STALE, NOT_POSSIBLE,
+ * TOO_MANY_ATTEMPTS(로그인을 너무 많이 틀림, 429), QUOTA_EXCEEDED(하루 AI 작업 수를 다 씀, 429) 중 하나다.
+ * message는 사람이 읽을 문장이라 그대로 보여 준다(예: "초대된 이메일만 가입할 수 있다").
  */
 @Serializable
 data class ApiError(val error: String? = null, val message: String? = null)
