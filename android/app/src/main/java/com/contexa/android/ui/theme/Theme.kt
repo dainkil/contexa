@@ -47,6 +47,8 @@ private val LightColors = lightColorScheme(
     surfaceContainerHighest = Color(0xFFF3F4F5),
     inverseSurface = Color(0xFF2A3038),
     inverseOnSurface = Color.White,
+    // 어두운 바탕(알림 막대) 위의 버튼 글자. 정하지 않으면 Material 기본 보라가 나온다
+    inversePrimary = Color(0xFF93E5C0), // 어두운 모드의 green-900
 )
 
 private val DarkColors = darkColorScheme(
@@ -81,6 +83,7 @@ private val DarkColors = darkColorScheme(
     surfaceContainerHighest = Color(0xFF2B2E35),
     inverseSurface = Color(0xFFF3F4F5),
     inverseOnSurface = Color(0xFF16171B),
+    inversePrimary = Color(0xFF079171), // 밝은 모드의 green-700
 )
 
 /** 근거 발언을 칠하는 노랑(bg.warning-weak = yellow-100). */

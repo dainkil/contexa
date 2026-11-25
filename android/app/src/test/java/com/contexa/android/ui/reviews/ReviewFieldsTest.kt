@@ -5,6 +5,7 @@ import com.contexa.android.api.RelType
 import com.contexa.android.api.ReviewStatus
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -14,9 +15,10 @@ import org.junit.Test
 
 class ReviewFieldsTest {
 
-    // UTC보다 앞선 시간대. 그날 0시가 UTC로는 전날이라, 날짜가 하루 밀리는 실수를 잡는다.
+    // UTC보다 앞선 시간대와 뒤진 시간대. 날짜가 하루 밀리는 실수를 잡는다.
     private val seoul = ZoneId.of("Asia/Seoul")
-    private fun midnight(date: String) = LocalDate.parse(date).atStartOfDay(seoul).toInstant().toString()
+    private val newYork = ZoneId.of("America/New_York")
+    private fun midnight(date: String) = LocalDate.parse(date).atStartOfDay(ZoneOffset.UTC).toInstant().toString()
     private val dec5 = midnight("2026-12-05")
 
     private val task = view(NodeType.TASK, "t1", "인쇄 발주", ReviewStatus.CANDIDATE, mapOf("dueAt" to dec5))
@@ -73,16 +75,35 @@ class ReviewFieldsTest {
     }
 
     @Test
-    fun `날짜는 기기 시간대로 오가도 같은 날이다`() {
-        assertEquals("2026-02-28", toDateInput(fromDateInput("2026-02-28", seoul), seoul))
-        assertEquals("2026-12-04T15:00:00Z", dec5)
+    fun `날짜만 고른 값은 UTC 0시로 저장하고 어느 시간대에서나 같은 날로 읽는다`() {
+        assertEquals("2026-12-05T00:00:00Z", fromDateInput("2026-12-05"))
+        for (zone in listOf(seoul, newYork, ZoneOffset.UTC)) {
+            assertEquals("2026-02-28", toDateInput(fromDateInput("2026-02-28"), zone))
+            assertEquals("2026. 12. 5.", formatDay(dec5, zone))
+        }
         assertEquals("", toDateInput(null, seoul))
         assertEquals("", toDateInput("모름", seoul))
+        assertEquals("모름", formatDay("모름", seoul))
+    }
+
+    @Test
+    fun `정확한 시각은 이 기기 시간대의 날짜로 읽는다`() {
+        // 서울 12월 5일 오전 8시 = UTC 12월 4일 23시
+        val morning = "2026-12-05T08:00:00+09:00"
+        assertEquals(LocalDate.parse("2026-12-05"), dayOf(morning, seoul))
+        assertEquals(LocalDate.parse("2026-12-04"), dayOf(morning, newYork))
+        // 예전에 서울 자정으로 저장한 값도 서울 기기에서는 그날이다
+        assertEquals("2026-12-05", toDateInput("2026-12-04T15:00:00Z", seoul))
     }
 
     @Test
     fun `카드 내용과 줄 이름`() {
-        assertEquals(listOf("상태" to "예정", "기한" to "미정", "수락" to "담당자 수락 전"), cardFacts(printTask().card!!))
+        // 새 할 일은 늘 "수락 전"이라 적지 않고, 담당자가 정했을 때만 적는다
+        assertEquals(listOf("상태" to "예정", "기한" to "미정"), cardFacts(printTask().card!!))
+        assertEquals(
+            listOf("기한" to "2026. 12. 5.", "수락" to "담당자 수락"),
+            cardFacts(view(NodeType.TASK, "t2", "인쇄 발주", states = mapOf("dueAt" to dec5, "acceptance" to "ACCEPTED"))),
+        )
         // 후보 사건에 "유효"라고 쓰면 확정된 것처럼 읽히므로 적지 않는다.
         assertEquals(
             emptyList<Pair<String, String>>(),

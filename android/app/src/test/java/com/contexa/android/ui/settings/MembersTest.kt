@@ -71,6 +71,19 @@ class MembersTest {
     }
 
     @Test
+    fun `소유자가 한 명뿐이면 그 역할은 바꿀 수 없다`() {
+        val members = listOf(ME, AHMED, HIDDEN)
+        assertFalse(canChangeRole(members, ME))
+        assertTrue(canChangeRole(members, AHMED))
+        // 이메일이 없으면 소유자 화면이 아니다
+        assertFalse(canChangeRole(members, HIDDEN))
+
+        val twoOwners = listOf(ME, AHMED.copy(role = Role.OWNER))
+        assertTrue(canChangeRole(twoOwners, ME))
+        assertTrue(canChangeRole(twoOwners, twoOwners[1]))
+    }
+
+    @Test
     fun `내 소유자 권한을 내려놓을 때만 한 번 더 묻는다`() {
         assertTrue(losesOwnership(ME, Role.REVIEWER))
         assertFalse(losesOwnership(ME, Role.OWNER))

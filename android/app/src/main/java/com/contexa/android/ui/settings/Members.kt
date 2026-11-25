@@ -58,5 +58,12 @@ fun memberNotice(name: String, role: Role, existed: Boolean): String {
     return if (existed) "$name 님의 역할을 $label 바꿨습니다." else "$name 님을 $label 넣었습니다."
 }
 
+/**
+ * 이 사람의 역할을 바꿀 수 있나. 소유자가 한 명뿐이면 그 사람은 바꿀 수 없다(server도 받지 않는다).
+ * 이메일이 없으면 소유자가 아닌 화면이므로 바꿀 수 없다.
+ */
+fun canChangeRole(members: List<Member>, member: Member): Boolean =
+    member.email != null && !(member.role == Role.OWNER && members.count { it.role == Role.OWNER } == 1)
+
 /** 내 역할을 낮추려는가. 소유자 권한을 잃으므로 한 번 더 묻는다. */
 fun losesOwnership(member: Member, role: Role): Boolean = member.me && member.role == Role.OWNER && role != Role.OWNER

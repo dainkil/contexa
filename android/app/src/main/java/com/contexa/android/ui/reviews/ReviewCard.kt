@@ -44,6 +44,7 @@ import com.contexa.android.api.Source
 import com.contexa.android.api.Verdict
 import com.contexa.android.ui.components.ChoiceChip
 import com.contexa.android.ui.components.KeyValue
+import com.contexa.android.ui.components.KoreanLocale
 import com.contexa.android.ui.components.PrimaryButton
 import com.contexa.android.ui.components.SecondaryButton
 import com.contexa.android.ui.components.Section
@@ -63,7 +64,8 @@ fun cardFacts(card: NodeView): List<Pair<String, String>> {
         NodeType.TASK -> listOfNotNull(
             state("workStatus", "상태"),
             "기한" to (card.states["dueAt"]?.takeIf { it.isNotEmpty() }?.let(::formatDay) ?: "미정"),
-            state("acceptance", "수락"),
+            // 새로 뽑힌 할 일은 늘 "수락 전"이라 알려 주는 것이 없다. 담당자가 정했을 때만 적는다
+            card.states["acceptance"]?.takeIf { it != "PENDING" }?.let { "수락" to stateLabel("acceptance", it) },
         )
         NodeType.DECISION_EVENT -> listOfNotNull(
             card.states["occurredAt"]?.takeIf { it.isNotEmpty() }?.let { "일어난 날" to formatDay(it) },
@@ -512,24 +514,29 @@ private fun FieldInput(spec: FieldSpec, value: String, enabled: Boolean, onChang
                 }
             }
             if (picking) {
-                // 날짜 고르개는 UTC 자정의 밀리초로 날짜를 주고받는다. 칸의 값은 "2026-12-05" 글자다.
-                val picker = rememberDatePickerState(
-                    initialSelectedDateMillis = value.takeIf { it.isNotEmpty() }
-                        ?.let { LocalDate.parse(it).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() },
-                )
-                DatePickerDialog(
-                    onDismissRequest = { picking = false },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            picker.selectedDateMillis?.let {
-                                onChange(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString())
-                            }
-                            picking = false
-                        }) { Text("고르기") }
-                    },
-                    dismissButton = { TextButton(onClick = { picking = false }) { Text("취소") } },
-                ) {
-                    DatePicker(state = picker)
+                // 기기 언어가 영어여도 다른 화면처럼 한국어로 보이게 한다.
+                // 바깥은 고르개 상태(요일 이름·주 시작 요일)를, 안쪽은 대화상자 글자를 바꾼다.
+                // 대화상자는 창이 따로라 바깥에서 바꾼 설정을 자기 설정으로 다시 덮는다.
+                KoreanLocale {
+                    // 날짜 고르개는 UTC 자정의 밀리초로 날짜를 주고받는다. 칸의 값은 "2026-12-05" 글자다.
+                    val picker = rememberDatePickerState(
+                        initialSelectedDateMillis = value.takeIf { it.isNotEmpty() }
+                            ?.let { LocalDate.parse(it).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() },
+                    )
+                    DatePickerDialog(
+                        onDismissRequest = { picking = false },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                picker.selectedDateMillis?.let {
+                                    onChange(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString())
+                                }
+                                picking = false
+                            }) { Text("고르기") }
+                        },
+                        dismissButton = { TextButton(onClick = { picking = false }) { Text("취소") } },
+                    ) {
+                        KoreanLocale { DatePicker(state = picker) }
+                    }
                 }
             }
         }

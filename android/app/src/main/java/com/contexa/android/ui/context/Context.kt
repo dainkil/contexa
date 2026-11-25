@@ -75,7 +75,8 @@ fun notices(packet: ContextPacket): List<Notice> {
  */
 data class TaskRow(val task: Fact, val assignees: List<String>, val needsRecheck: Boolean = false) {
     val workStatus: TaskStatus? get() = task.states["workStatus"]?.let { name -> TaskStatus.entries.find { it.name == name } }
-    val acceptance: String? get() = task.states["acceptance"]
+    /** 담당자의 수락 상태. 담당이 없으면 수락할 사람도 없으므로 null이다. */
+    val acceptance: String? get() = task.states["acceptance"]?.takeIf { assignees.isNotEmpty() }
     val dueAt: String? get() = task.states["dueAt"]
 
     /** server는 확인된 할 일만 상태를 바꿔 준다. */

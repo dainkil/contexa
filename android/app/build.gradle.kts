@@ -1,3 +1,7 @@
+import java.io.ByteArrayOutputStream
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
 plugins {
     // Kotlin 지원은 Android Gradle Plugin 9에 들어 있다(별도 kotlin-android 플러그인 없음).
     alias(libs.plugins.android.application)
@@ -96,12 +100,46 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
 }
 
-// 연결된 기기의 8090 포트를 이 컴퓨터의 server로 돌린다. 기기를 다시 켜면 다시 해야 한다.
-val reversePort by tasks.registering(Exec::class) {
+/**
+ * 연결된 기기마다 8090 포트를 이 컴퓨터의 server로 돌린다(adb reverse). 기기를 다시 켜면 다시 해야 한다.
+ * 휴대폰과 에뮬레이터가 함께 연결돼 있어도 모두 돌린다. ANDROID_SERIAL이 있으면 그 기기만 돌린다.
+ */
+abstract class ReversePort @Inject constructor(private val exec: ExecOperations) : DefaultTask() {
+    @get:Input
+    abstract val adb: Property<String>
+
+    @get:Input
+    abstract val port: Property<Int>
+
+    @TaskAction
+    fun run() {
+        val serials = System.getenv("ANDROID_SERIAL")?.takeIf { it.isNotBlank() }?.let(::listOf) ?: connected()
+        if (serials.isEmpty()) throw GradleException("연결된 기기가 없습니다. 에뮬레이터를 켜거나 휴대폰을 USB로 연결하세요(USB 디버깅 허용).")
+        val tcp = "tcp:${port.get()}"
+        serials.forEach { serial ->
+            exec.exec { commandLine(adb.get(), "-s", serial, "reverse", tcp, tcp) }
+            logger.lifecycle("$serial: $tcp → 이 컴퓨터 $tcp")
+        }
+    }
+
+    /** "adb devices"에서 쓸 수 있는 기기(상태가 device)만. unauthorized는 휴대폰에서 디버깅을 허용해야 한다. */
+    private fun connected(): List<String> {
+        val out = ByteArrayOutputStream()
+        exec.exec {
+            commandLine(adb.get(), "devices")
+            standardOutput = out
+        }
+        val rows = out.toString().lines().drop(1).map { it.trim().split(Regex("\\s+")) }.filter { it.size >= 2 }
+        rows.filter { it[1] == "unauthorized" }.forEach { logger.warn("${it[0]}: 휴대폰 화면에서 USB 디버깅을 허용해 주세요") }
+        return rows.filter { it[1] == "device" }.map { it[0] }
+    }
+}
+
+val reversePort = tasks.register<ReversePort>("reversePort") {
     group = "contexa"
-    description = "adb reverse tcp:8090 tcp:8090"
-    executable = androidComponents.sdkComponents.adb.get().asFile.absolutePath
-    args("reverse", "tcp:8090", "tcp:8090")
+    description = "연결된 기기마다 adb reverse tcp:8090 tcp:8090"
+    adb.set(androidComponents.sdkComponents.adb.map { it.asFile.absolutePath })
+    port.set(8090)
 }
 
 tasks.matching { it.name == "installDebug" }.configureEach { dependsOn(reversePort) }

@@ -220,8 +220,18 @@ class ContextTest {
         assertTrue(rows[0].awaitingAcceptance)
         assertEquals(emptyList<String>(), rows[1].assignees)
         assertFalse(rows[1].canChange)
+        assertEquals("PENDING", rows[0].acceptance)
         assertFalse(TaskStatus.PLANNED in nextStatuses(TaskStatus.PLANNED))
         assertEquals(TaskStatus.entries.size - 1, nextStatuses(TaskStatus.PLANNED).size)
+    }
+
+    @Test
+    fun `담당이 없는 할 일은 수락 상태를 적지 않고 수락을 기다리지도 않는다`() {
+        val row = taskRows(packet(listOf(task))).single()
+
+        assertTrue(row.canChange)
+        assertNull(row.acceptance)
+        assertFalse(row.awaitingAcceptance)
     }
 
     @Test

@@ -3,10 +3,8 @@ package com.contexa.android.ui.reviews
 import com.contexa.android.api.NodeType
 import com.contexa.android.api.RelType
 import com.contexa.android.api.ReviewStatus
-import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
 import java.time.format.FormatStyle
 import java.util.Locale
 
@@ -116,9 +114,5 @@ fun relationLabel(rel: RelType, ownerIsSrc: Boolean): String {
 
 private val dayFormat = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(Locale.KOREA)
 
-/** 저장된 시각(ISO)을 날짜만 지역화해 보여 준다. */
-fun formatDay(iso: String, zone: ZoneId = ZoneId.systemDefault()): String = try {
-    dayFormat.format(Instant.parse(iso).atZone(zone))
-} catch (_: DateTimeParseException) {
-    iso
-}
+/** 저장된 시각(ISO)을 날짜만 지역화해 보여 준다. 날짜만 적은 값(UTC 0시)은 어느 시간대에서도 같은 날이다(dayOf). */
+fun formatDay(iso: String, zone: ZoneId = ZoneId.systemDefault()): String = dayOf(iso, zone)?.let(dayFormat::format) ?: iso

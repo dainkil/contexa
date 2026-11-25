@@ -70,7 +70,7 @@ fun MembersSection(viewModel: MembersViewModel, onNotice: (String) -> Unit) {
         else -> state.members.forEach { member ->
             MemberRow(
                 member = member,
-                editable = manage && member.email != null,
+                editable = manage && canChangeRole(state.members, member),
                 busy = state.changingId == member.userId,
                 enabled = state.changingId == null,
                 onPick = { role ->

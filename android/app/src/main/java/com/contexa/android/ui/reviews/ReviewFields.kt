@@ -4,7 +4,9 @@ import com.contexa.android.api.NodeType
 import com.contexa.android.api.NodeView
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeParseException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -49,19 +51,28 @@ fun fieldsOf(type: NodeType): List<FieldSpec> = when (type) {
     NodeType.SPAN, NodeType.ARTIFACT -> emptyList()
 }
 
-/** ISO 시각 → 날짜 칸의 값 "2026-12-05"(이 기기 기준 날짜). 없거나 풀 수 없으면 빈 글자. */
-fun toDateInput(iso: String?, zone: ZoneId = ZoneId.systemDefault()): String {
-    if (iso.isNullOrEmpty()) return ""
-    return try {
-        Instant.parse(iso).atZone(zone).toLocalDate().toString()
+/*
+ * 날짜만 고르는 칸(기한·일어난 날)은 그날 UTC 0시로 저장한다. 시간대가 다른 구성원(서울·리야드)도 같은 날로 본다.
+ * 읽을 때는 UTC 0시면 날짜만 적은 값으로 보고 그 날짜를, 아니면 정확한 시각이므로 이 기기 시간대의 날짜를 쓴다.
+ */
+
+/** 저장된 ISO 시각이 가리키는 날. 없거나 풀 수 없으면 null. */
+fun dayOf(iso: String?, zone: ZoneId = ZoneId.systemDefault()): LocalDate? {
+    if (iso.isNullOrEmpty()) return null
+    val instant = try {
+        Instant.parse(iso)
     } catch (_: DateTimeParseException) {
-        ""
+        return null
     }
+    val utc = instant.atOffset(ZoneOffset.UTC)
+    return if (utc.toLocalTime() == LocalTime.MIDNIGHT) utc.toLocalDate() else instant.atZone(zone).toLocalDate()
 }
 
-/** 날짜 칸의 값 → 그날 0시(이 기기 기준)의 ISO 시각. */
-fun fromDateInput(value: String, zone: ZoneId = ZoneId.systemDefault()): String =
-    LocalDate.parse(value).atStartOfDay(zone).toInstant().toString()
+/** ISO 시각 → 날짜 칸의 값 "2026-12-05". 없거나 풀 수 없으면 빈 글자. */
+fun toDateInput(iso: String?, zone: ZoneId = ZoneId.systemDefault()): String = dayOf(iso, zone)?.toString().orEmpty()
+
+/** 날짜 칸의 값 → 그날 UTC 0시의 ISO 시각. */
+fun fromDateInput(value: String): String = LocalDate.parse(value).atStartOfDay(ZoneOffset.UTC).toInstant().toString()
 
 /** 카드의 지금 값(칸 이름 → 값). */
 fun currentValues(card: NodeView, zone: ZoneId = ZoneId.systemDefault()): Map<String, String> =
@@ -76,7 +87,7 @@ fun missingFields(card: NodeView, values: Map<String, String>): List<String> =
 
 /**
  * 바뀐 값만 server가 받는 모양(corrections)으로 만든다.
- * 글은 앞뒤 공백을 지우고, 날짜는 그날 0시의 ISO 시각으로, 지운 날짜는 null(정하지 않음)로 보낸다.
+ * 글은 앞뒤 공백을 지우고, 날짜는 그날 UTC 0시의 ISO 시각으로, 지운 날짜는 null(정하지 않음)로 보낸다.
  */
 fun changedFields(
     card: NodeView,
@@ -91,7 +102,7 @@ fun changedFields(
         changed[spec.name] = when {
             spec.kind != FieldKind.DATE -> JsonPrimitive(now)
             now.isEmpty() -> JsonNull
-            else -> JsonPrimitive(fromDateInput(now, zone))
+            else -> JsonPrimitive(fromDateInput(now))
         }
     }
     return changed
