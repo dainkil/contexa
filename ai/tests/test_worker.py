@@ -1,7 +1,7 @@
 import unittest
 
 from contexa_ai.llm import LLMRefused, LLMTransient
-from contexa_ai.server import Lease, LeaseLost, ServerRejected
+from contexa_ai.server import Lease, LeaseLost, ServerError, ServerRejected
 from contexa_ai.worker import Worker
 from tests.test_extract import ONTOLOGY, SPANS, STATE, card, link
 
@@ -126,6 +126,26 @@ class WorkerTest(unittest.TestCase):
         self.assertTrue(Worker(server, FakeLLM(GOOD)).run_once())
 
         self.assertEqual(server.submitted, [])
+        self.assertEqual(server.failures, [])
+
+    def test_모르는_예외는_끝난_실패로_알리고_일꾼은_죽지_않는다(self):
+        # 예: 모델 응답 모양이 예상과 달라 생긴 코드 오류. 전에는 일꾼 프로세스가 그대로 끝났다
+        server = FakeServer("EXTRACT")
+
+        self.assertTrue(Worker(server, FakeLLM(KeyError("cards"))).run_once())
+
+        self.assertEqual(server.failures, [("일꾼 내부 오류(KeyError): 'cards'", False)])
+
+    def test_서버와_통신하지_못하면_실패를_알리지_않고_위로_올린다(self):
+        # 실패를 알리는 요청도 닿지 않는다. 임대가 끝나면 서버가 다른 일꾼에게 다시 준다
+        class Unreachable(FakeServer):
+            def spans(self, lease):
+                raise ServerError("연결이 끊겼다")
+
+        server = Unreachable("EXTRACT")
+
+        with self.assertRaises(ServerError):
+            Worker(server, FakeLLM(GOOD)).run_once()
         self.assertEqual(server.failures, [])
 
     def test_모르는_종류의_일은_끝난_실패로_알린다(self):

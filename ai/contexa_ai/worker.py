@@ -26,6 +26,12 @@ WINDOW = 200
 MAX_REPAIRS = 1
 
 
+def _short(error: Exception, limit: int = 300) -> str:
+    """실패 이유로 서버에 남길 만큼만. 긴 메시지는 자른다."""
+    text = " ".join(str(error).split())
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
 class Worker:
     def __init__(self, server: ServerClient, llm: LLM):
         self._server = server
@@ -61,6 +67,14 @@ class Worker:
             self._report(lease, f"모델 호출이 잠시 실패했다: {error}", retryable=True)
         except (LLMRefused, LLMError, ServerRejected) as error:
             self._report(lease, str(error), retryable=False)
+        except ServerError:
+            # 서버에 닿지 않으면 실패도 알릴 수 없다. 임대가 끝나면 서버가 다시 내준다
+            raise
+        except Exception as error:
+            # 분류하지 못한 오류(예: 모델 응답 모양이 달라 생긴 KeyError 같은 코드 오류). 되풀이될 테니 다시 시도하지 않는 실패로 알리고,
+            # 일꾼은 다음 일로 넘어간다. 사람은 자료함의 "다시 시도"로 다시 맡길 수 있다
+            log.exception("작업 %s 에서 분류하지 못한 오류", lease.job_id)
+            self._report(lease, f"일꾼 내부 오류({type(error).__name__}): {_short(error)}", retryable=False)
 
     def _parse(self, lease: Lease) -> None:
         content = self._server.content(lease)
@@ -163,6 +177,10 @@ def main() -> None:
             worked = worker.run_once()
         except ServerError as error:
             log.warning("서버와 통신하지 못했다: %s", error)
+            worked = False
+        except Exception:
+            # 작업 처리 밖에서 난 오류. 일꾼은 죽지 않고 잠시 쉬었다가 다시 일을 찾는다
+            log.exception("예상하지 못한 오류")
             worked = False
         if not worked:
             if args.once:
