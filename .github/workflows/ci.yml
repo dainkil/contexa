@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: server (Spring Boot)
+    runs-on: ubuntu-latest
+    services:
+      # 테스트는 localhost:5434/contexa_test에 붙는다(server/build.gradle)
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: contexa_test
+          POSTGRES_USER: contexa
+          POSTGRES_PASSWORD: contexa
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U contexa -d contexa_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew build
+
+  ai:
+    name: ai + eval (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -e ./ai
+      # 모델·server 없이 돈다
+      - run: python -m unittest discover -s tests -t .
+        working-directory: ai
+      - run: python -m unittest discover -s eval/tests -t .
+
+  android:
+    name: android (Compose)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew :app:testDebugUnitTest :app:assembleDebug
