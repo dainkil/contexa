@@ -8,6 +8,8 @@ dependencies = [
     "langchain>=1.5",
     "langchain-core>=1.8",
     "langchain-anthropic>=1.7",
+    # 작업 한 번 안의 단계 제어(answer_graph.py, extract_graph.py)에만 쓴다. 체크포인터·interrupt는 쓰지 않는다.
+    "langgraph>=1.2",
 ]
 
 [project.optional-dependencies]
