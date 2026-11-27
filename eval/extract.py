@@ -2,9 +2,14 @@
 
     python -m eval.extract --oracle                         # 모델 없이 정답을 답으로 넣어 채점·라벨을 확인(비용 없음)
     python -m eval.extract --model anthropic:claude-opus-5-5   # 실제 모델 호출(API 비용이 든다)
+    python -m eval.extract --model … --window 4 --overlap 1    # 회의를 작은 창으로 잘라 창 나누기·합치기까지 잰다
 
-- 일꾼과 같은 지시문(prompts/extract.vN.md), 같은 자료 모양(build_user_prompt), 같은 거르기(to_candidates)를 쓴다.
+- 일꾼과 같은 흐름(extract_graph.run: 창 나누기 → 창마다 뽑기·거르기 → 합치기)을 쓴다.
+  지시문(prompts/extract.vN.md), 자료 모양(build_user_prompt), 거르기(to_candidates)도 같다.
   서버에 내지는 않으므로 서버의 검증과 "거절되면 한 번 다시 뽑기"는 들어가지 않는다.
+- 합성 회의는 발언이 10개도 안 되어 기본 창(200발언)이면 창이 하나다. --window를 작게 주면 긴 회의처럼 나눠 본다.
+  --oracle에 --window를 주면 창마다 정답 전체를 답으로 준다. 창 밖 발언만 근거로 댄 후보는 그 창에서 걸러지고
+  ("버린 후보"로 센다), 여러 창에 나온 같은 카드는 합쳐진다. 그래서 합치기가 맞으면 여전히 1.0이다.
 - 회의마다 앞 회의의 정답 카드를 "이미 있는 카드"로 보여 준다(사람이 확인했다고 보고). 그래야 회의 간 연결을 따로 잴 수 있다.
 - 규칙표(온톨로지)는 서버에서 받는다. 서버가 떠 있어야 한다(CONTEXA_SERVER_URL, CONTEXA_WORKER_TOKEN).
 """
@@ -18,7 +23,7 @@ import logging
 from datetime import datetime
 from typing import Any, Iterator
 
-from contexa_ai import extract, tracing
+from contexa_ai import extract, extract_graph, tracing
 from contexa_ai.config import Config
 from contexa_ai.llm import make_llm
 from contexa_ai.server import ServerClient
@@ -64,12 +69,23 @@ def count_tokens() -> Iterator[_TokenCounter]:
         llm_log.propagate = propagate
 
 
-def run(model: str | None, ontology: dict[str, Any]) -> dict[str, Any]:
+class _Oracle:
+    """모델 대신 정답을 답으로 준다. 창이 여럿이면 창마다 같은 답을 주고, 창 밖 근거는 일꾼이 거른다."""
+
+    def __init__(self, output: dict[str, Any]):
+        self._output = output
+
+    def structured(self, system: str, user: str, schema: dict[str, Any]) -> dict[str, Any]:
+        return self._output
+
+
+def run(model: str | None, ontology: dict[str, Any], window: int | None = None,
+        overlap: int | None = None) -> dict[str, Any]:
     """model이 None이면 정답을 답으로 넣는다(oracle)."""
     _, documents = load_corpus()
     by_id = {document.id: document for document in documents}
     labels = load_labels("extract")
-    llm = make_llm(model) if model else None
+    model_llm = make_llm(model) if model else None
     meetings, outputs = [], []
     with count_tokens() as counter:
         for index, meeting in enumerate(labels["meetings"]):
@@ -77,21 +93,20 @@ def run(model: str | None, ontology: dict[str, Any]) -> dict[str, Any]:
             existing = scoring.existing_cards(labels["meetings"], index)
             spans = scoring.spans_of(document)
             state = scoring.state_of(existing)
-            if llm is None:
-                output = scoring.oracle_output(meeting, existing)
-            else:
-                user = extract.build_user_prompt({"document": {"title": document.title, "kind": document.kind}},
-                                                 spans, state, ontology)
-                with tracing.job(f"eval-{document.id}", "EXTRACT", "eval"):
-                    output = llm.structured(extract.SYSTEM_PROMPT, user, extract.OUTPUT_SCHEMA)
-            extraction = extract.to_candidates(output, spans, state, ontology)
-            meetings.append(scoring.score_meeting(meeting, existing, output, extraction, len(spans)))
-            outputs.append({"document": document.id, "output": output})
+            llm = model_llm or _Oracle(scoring.oracle_output(meeting, existing))
+            with tracing.job(f"eval-{document.id}", "EXTRACT", "eval"):
+                result = extract_graph.run(llm, {"document": {"title": document.title, "kind": document.kind}},
+                                           spans, state, ontology, window=window, overlap=overlap)
+            scored = scoring.score_meeting(meeting, existing, result.output, result.extraction, len(spans))
+            scored["windows"] = result.windows
+            meetings.append(scored)
+            outputs.append({"document": document.id, "output": result.output})
     return {
         "kind": "extract",
         "date": datetime.now().astimezone().isoformat(timespec="seconds"),
         "model": model or "oracle",
         "prompt": extract.SYSTEM_PROMPT.ref,
+        "window": {"size": window or extract_graph.WINDOW, "overlap": extract_graph.OVERLAP if overlap is None else overlap},
         "labels": "data/synthetic/labels/extract.json",
         "summary": scoring.summarize(meetings),
         "tokens": {"calls": counter.calls, "input": counter.input_tokens, "output": counter.output_tokens},
@@ -106,7 +121,10 @@ def _fmt(value: float | None) -> str:
 
 def report(result: dict[str, Any]) -> str:
     summary = result["summary"]
-    lines = [f"뽑기 평가: 모델 {result['model']}, 지시문 {result['prompt']}", "",
+    window = result["window"]
+    windows = sum(meeting["windows"] for meeting in result["meetings"])
+    lines = [f"뽑기 평가: 모델 {result['model']}, 지시문 {result['prompt']}, "
+             f"창 {window['size']}발언(겹침 {window['overlap']}) → 회의 {len(result['meetings'])}개에 창 {windows}개", "",
              f"{'카드':<16}{'정밀도':>8}{'재현율':>8}   TP/FP/FN"]
     for name, row in summary["cards"].items():
         lines.append(f"{name:<16}{_fmt(row['precision']):>8}{_fmt(row['recall']):>8}   "
@@ -138,12 +156,14 @@ def main() -> None:
     group.add_argument("--oracle", action="store_true", help="모델 대신 정답을 넣어 채점과 라벨만 확인한다")
     parser.add_argument("--out", help="결과 JSON 경로. 없으면 eval/results/extract-날짜시각.json")
     parser.add_argument("--errors", action="store_true", help="회의마다 틀린 것과 놓친 것을 함께 보여 준다")
+    parser.add_argument("--window", type=int, help=f"창 하나의 발언 수(기본 {extract_graph.WINDOW})")
+    parser.add_argument("--overlap", type=int, help=f"앞 창과 겹치는 발언 수(기본 {extract_graph.OVERLAP})")
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
 
     config = Config.from_env()
     ontology = ServerClient(config.server_url, config.worker_token, "eval").ontology()
-    result = run(None if args.oracle else args.model, ontology)
+    result = run(None if args.oracle else args.model, ontology, args.window, args.overlap)
     print(report(result))
     path = save(result, "extract-oracle" if args.oracle else "extract", args.out)
     print(f"\n결과: {path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}")

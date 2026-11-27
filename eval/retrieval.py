@@ -13,21 +13,68 @@ from __future__ import annotations
 import argparse
 import json
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from contexa_ai.config import Config
 
-from .common import ROOT, Span, languages_of, load_corpus, load_labels, ratio, save
+from .common import ROOT, Document, Span, languages_of, load_corpus, load_labels, ratio, save
 
 
-def _post(url: str, body: dict[str, Any], token: str | None = None) -> dict[str, Any]:
+def _request(url: str, body: dict[str, Any] | None, token: str | None, method: str) -> dict[str, Any]:
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    request = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
+    data = None if body is None else json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _post(url: str, body: dict[str, Any], token: str | None = None) -> dict[str, Any]:
+    return _request(url, body, token, "POST")
+
+
+def _get(url: str, token: str) -> dict[str, Any]:
+    return _request(url, None, token, "GET")
+
+
+@dataclass(frozen=True)
+class Project:
+    """평가용으로 새로 만든 프로젝트. eval_id는 서버의 발언 id → "m1:3" 같은 평가용 id."""
+    documents: list[Document]
+    project_id: str
+    token: str
+    eval_id: dict[str, str]
+
+
+def load_project(server_url: str, purpose: str) -> Project:
+    """합성 문서를 서버의 평가용 주소로 새 프로젝트에 넣고, 평가 계정으로 로그인한다."""
+    title, documents = load_corpus()
+    loaded = _post(f"{server_url}/dev/eval/corpus", {
+        "title": f"{title} {purpose} {datetime.now().strftime('%m-%d %H:%M')}",
+        "documents": [{"title": document.title, "kind": document.kind,
+                       "spans": [{"speakerLabel": span.speaker, "text": span.text} for span in document.spans]}
+                      for document in documents]})
+    eval_id: dict[str, str] = {}
+    for document, stored in zip(documents, loaded["documents"]):
+        for span, span_id in zip(document.spans, stored["spanIds"]):
+            eval_id[span_id] = span.id
+    token = _post(f"{server_url}/api/v1/auth/login", {"email": loaded["email"], "password": loaded["password"]})["token"]
+    return Project(documents, loaded["projectId"], token, eval_id)
+
+
+def search(server_url: str, project: Project, query: str, k: int) -> dict[str, Any]:
+    """앱과 같은 검색 주소를 부른다."""
+    return _post(f"{server_url}/api/v1/projects/{project.project_id}/context/search", {"query": query, "k": k},
+                 project.token)
+
+
+def found_ids(project: Project, packet: dict[str, Any]) -> list[str]:
+    """답변서의 발언을 평가용 id로 바꾼다."""
+    return [project.eval_id[source["span"]["id"]] for source in packet.get("sources", [])
+            if source["span"]["id"] in project.eval_id]
 
 
 def group_of(langs: list[str]) -> str:
@@ -35,8 +82,11 @@ def group_of(langs: list[str]) -> str:
 
 
 def score(queries: list[dict[str, Any]], found: dict[str, list[str]], spans: dict[str, Span],
-          k: int) -> dict[str, Any]:
-    """found: 질문 id → 검색 결과로 나온 발언 id. 질문 하나의 recall = 찾은 정답 수 / 정답 수."""
+          k: int | str) -> dict[str, Any]:
+    """found: 질문 id → 검색 결과로 나온 발언 id. 질문 하나의 recall = 찾은 정답 수 / 정답 수.
+
+    k는 열 이름(recall@k)에만 쓴다. 근거 모으기 평가는 "all"(모은 발언 전부)을 준다.
+    """
     rows = []
     pairs = {"same": [0, 0], "cross": [0, 0]}  # [찾음, 전체]
     for query in queries:
@@ -69,32 +119,18 @@ def score(queries: list[dict[str, Any]], found: dict[str, list[str]], spans: dic
 
 
 def run(server_url: str, k: int) -> dict[str, Any]:
-    title, documents = load_corpus()
     labels = load_labels("retrieval")
-    loaded = _post(f"{server_url}/dev/eval/corpus", {
-        "title": f"{title} 검색 평가 {datetime.now().strftime('%m-%d %H:%M')}",
-        "documents": [{"title": document.title, "kind": document.kind,
-                       "spans": [{"speakerLabel": span.speaker, "text": span.text} for span in document.spans]}
-                      for document in documents]})
-    eval_id: dict[str, str] = {}
-    for document, stored in zip(documents, loaded["documents"]):
-        for span, span_id in zip(document.spans, stored["spanIds"]):
-            eval_id[span_id] = span.id
-    token = _post(f"{server_url}/api/v1/auth/login", {"email": loaded["email"], "password": loaded["password"]})["token"]
-    found = {}
-    for query in labels["queries"]:
-        packet = _post(f"{server_url}/api/v1/projects/{loaded['projectId']}/context/search",
-                       {"query": query["query"], "k": k}, token)
-        found[query["id"]] = [eval_id[source["span"]["id"]] for source in packet.get("sources", [])
-                              if source["span"]["id"] in eval_id]
-    spans = {span.id: span for document in documents for span in document.spans}
+    project = load_project(server_url, "검색 평가")
+    found = {query["id"]: found_ids(project, search(server_url, project, query["query"], k))
+             for query in labels["queries"]}
+    spans = {span.id: span for document in project.documents for span in document.spans}
     return {
         "kind": "retrieval",
         "date": datetime.now().astimezone().isoformat(timespec="seconds"),
         "method": "pg_trgm word_similarity (글자 검색만)",
         "k": k,
         "labels": "data/synthetic/labels/retrieval.json",
-        "project_id": loaded["projectId"],
+        "project_id": project.project_id,
         **score(labels["queries"], found, spans, k),
     }
 
