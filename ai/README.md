@@ -5,11 +5,29 @@
 | 작업 | 하는 일 | 모델 사용 |
 |---|---|---|
 | `PARSE` | 문서를 발언으로 자른다 | 아니오 (규칙으로 자름) |
-| `EXTRACT` | 발언에서 카드·줄 후보를 뽑는다 | 예 |
-| `GENERATE` | 질문에 답을 쓴다 (근거를 모으고, 인용을 검사해서 제출). 질문을 쓴 언어로 답하고, 근거 발언은 번역하지 않는다 | 예 |
+| `EXTRACT` | 발언에서 카드·줄 후보를 뽑는다. 긴 문서는 겹치는 창으로 나눠 동시에 뽑고 합친다 | 예 |
+| `GENERATE` | 질문에 답을 쓴다. 검색어를 계획하고(다른 언어 검색어 포함) 근거를 모은 뒤, 모자라면 한 번 더 찾고 쓴다. 인용을 검사해서 제출한다. 질문을 쓴 언어로 답하고, 근거 발언은 번역하지 않는다 | 예 |
 
 일꾼이 낸 것은 모두 "AI 후보"로 저장됩니다. 확인은 사람이 검토함에서 합니다.
 일꾼은 데이터베이스에 접속하지 않고 서버의 `/internal` 주소만 부릅니다.
+
+## 작업 안의 단계 (LangGraph)
+
+`EXTRACT`와 `GENERATE`는 작업 하나 안의 단계를 LangGraph로 잇습니다. 체크포인터와 `interrupt`는 쓰지 않습니다.
+실패하면 서버에 알리고, 다시 하는 것은 서버의 작업 임대·재시도가, 사람의 판단은 검토함이 맡습니다.
+
+```
+GENERATE  load ─▶ plan ─▶ retrieve ─▶ judge ─(모자라면 한 번 더)─▶ retrieve
+                                        └─(충분하면)─▶ write ─▶ submit ─(서버가 받지 않으면)─▶ retrieve(처음부터)
+EXTRACT   prepare ─(창마다 Send)─▶ window ×N ─▶ merge ─▶ submit ─(받지 않으면 문제의 창만)─▶ window
+```
+
+- 질의 계획(`plan.v1`): 질문 원문은 언제나 첫 검색어입니다. 모델이 검색어를 더 내고(질문을 프로젝트의 다른 언어로 옮긴 것 포함),
+  현황의 안건 중 관련된 것을 고릅니다. 고른 안건은 지난 제안·바뀐 결정까지 따라가 읽습니다(state의 `topic_ids`).
+  검색이 글자 일치라 다른 언어로 적힌 발언은 원문으로 찾지 못하기 때문입니다.
+- 근거 판단(`judge.v1`): 모은 근거로 답할 수 있는지 보고, 모자라면 검색어·안건을 더 내 한 번 더 모읍니다(최대 2회).
+- 창 나누기: 발언 200개씩, 앞 창과 20개 겹치게 자릅니다. 다른 창에서 나온 같은 카드(종류가 같고 글이 같거나 근거 발언이 똑같은 것)는
+  하나로 합칩니다. 인물·기관은 이름이 같을 때만 합칩니다. 창들은 서로의 결과를 보지 못하므로, 겹치지 않는 창 사이의 줄은 생기지 않습니다.
 
 ## 실행
 
@@ -18,7 +36,7 @@
 ```bash
 cd ai
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .                      # LangChain(langchain, langchain-anthropic)을 설치한다
+pip install -e .                      # LangChain(langchain, langchain-anthropic)과 LangGraph를 설치한다
 # 모델 API 키는 저장소 최상위 .env에 ANTHROPIC_API_KEY=... 로 적는다(git이 무시한다).
 # 일꾼이 켜질 때 읽고, 이미 있는 환경 변수는 덮어쓰지 않는다. 셸 설정 파일에는 export하지 않는다
 python -m contexa_ai.worker           # 계속 돌면서 일을 기다린다
@@ -31,6 +49,8 @@ python -m contexa_ai.worker --once    # 기다리는 일을 한 번 훑고 끝�
 | `CONTEXA_WORKER_TOKEN` | `dev-worker-token` | 서버의 `contexa.worker.token`과 같은 값 |
 | `CONTEXA_MODEL` | `anthropic:claude-opus-5-5` | `공급자:모델`. 공급자를 빼면 `anthropic`으로 본다 |
 | `CONTEXA_POLL_SECONDS` | `2` | 일이 없을 때 다시 물어보는 간격 |
+| `CONTEXA_LANGUAGES` | `ko,en,ar` | 프로젝트가 쓰는 언어. 질의 계획이 이 언어들로 검색어를 옮긴다 |
+| `CONTEXA_EXTRACT_CONCURRENCY` | `2` | 긴 문서의 창을 동시에 몇 개까지 뽑을지 |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` | 없음, 없음, `http://localhost:3000` | 셋 다 있으면 Langfuse로 추적을 보낸다(아래) |
 
 ## 호출 기록
@@ -82,7 +102,9 @@ python -m unittest discover -s tests -t .
 | `contexa_ai/worker.py` | 일을 가져와 종류에 맞게 처리하는 루프. 작업마다 추적 범위를 연다 |
 | `contexa_ai/parse.py` | 문서를 발언으로 자르는 규칙 |
 | `contexa_ai/extract.py` | 모델에게 주는 자료, 모델의 답을 후보로 바꾸는 규칙 |
-| `contexa_ai/answer.py` | 근거 모으기, 답을 쓰게 하는 자료, 인용 검사 |
+| `contexa_ai/extract_graph.py` | EXTRACT 단계(창 나누기·창마다 뽑기·합치기·고치기)를 잇는 LangGraph |
+| `contexa_ai/answer.py` | 근거 합치기, 답을 쓰게 하는 자료, 인용 검사 |
+| `contexa_ai/answer_graph.py` | GENERATE 단계(질의 계획·근거 모으기·충분성 판단·쓰기·내기)를 잇는 LangGraph |
 | `contexa_ai/prompts.py`, `contexa_ai/prompts/` | 버전이 붙은 지시문과 그 읽기 |
 | `contexa_ai/llm.py` | 모델을 부르는 유일한 곳. LangChain 어댑터 |
 | `contexa_ai/tracing.py` | 작업 맥락, 호출 기록 한 줄, Langfuse 추적(선택) |
