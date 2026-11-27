@@ -38,6 +38,10 @@ def load_env_file(path: Path = ENV_FILE) -> list[str]:
     return loaded
 
 
+# 기본으로 다루는 언어. CONTEXA_LANGUAGES로 늘리거나 줄인다
+DEFAULT_LANGUAGES: tuple[str, ...] = ("ko", "en", "ar")
+
+
 @dataclass(frozen=True)
 class Config:
     server_url: str
@@ -45,6 +49,10 @@ class Config:
     worker_id: str
     model: str
     poll_seconds: float
+    # 프로젝트에서 쓰는 언어. 질문을 다른 언어로도 바꿔 찾을 때 쓴다(answer_graph). 코드에 박지 않고 여기서 늘린다.
+    languages: tuple[str, ...] = DEFAULT_LANGUAGES
+    # 긴 문서를 창으로 나눠 뽑을 때 동시에 부르는 모델 수(extract_graph)
+    extract_concurrency: int = 2
 
     @staticmethod
     def from_env() -> "Config":
@@ -58,4 +66,11 @@ class Config:
             # "공급자:모델". 공급자를 적지 않으면 anthropic으로 본다(llm.parse_model).
             model=os.environ.get("CONTEXA_MODEL", "anthropic:claude-opus-5-5"),
             poll_seconds=float(os.environ.get("CONTEXA_POLL_SECONDS", "2")),
+            languages=parse_languages(os.environ.get("CONTEXA_LANGUAGES", ",".join(DEFAULT_LANGUAGES))),
+            extract_concurrency=max(1, int(os.environ.get("CONTEXA_EXTRACT_CONCURRENCY", "2"))),
         )
+
+
+def parse_languages(value: str) -> tuple[str, ...]:
+    """쉼표로 나눈 언어 코드를 읽는다. 예: "ko, en,ar" → ("ko", "en", "ar"). 빈 값과 겹치는 값은 뺀다."""
+    return tuple(dict.fromkeys(code.strip().lower() for code in value.split(",") if code.strip()))

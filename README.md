@@ -3,7 +3,7 @@
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white)
 ![Server](https://img.shields.io/badge/Server-Java%2021%20·%20Spring%20Boot-6DB33F?logo=springboot&logoColor=white)
-![AI](https://img.shields.io/badge/AI-Python%20·%20LangChain-D97757)
+![AI](https://img.shields.io/badge/AI-Python%20·%20LangChain%20·%20LangGraph-D97757)
 ![MCP](https://img.shields.io/badge/MCP-connector-555555)
 
 여러 언어가 섞인 회의록에서 **결정·조건·할 일**을 뽑아, 사람이 근거를 보고 확인한 것만 "지금의 결정"으로 쌓는 Android 앱과 MCP 커넥터입니다.
@@ -65,13 +65,14 @@
 flowchart LR
     app["Android 앱<br/>Kotlin · Compose"] -- "HTTP /api/v1" --> server
     agent["외부 AI 에이전트"] -- "POST /mcp<br/>읽기 · 후보 제안" --> server
-    worker["AI 일꾼<br/>Python · LangChain"] -- "작업 가져가기 · 결과 제출<br/>/internal/v1/jobs" --> server
+    worker["AI 일꾼<br/>Python · LangChain · LangGraph"] -- "작업 가져가기 · 결과 제출<br/>/internal/v1/jobs" --> server
     worker --> llm["LLM API"]
     server["server<br/>Java 21 · Spring Boot<br/>권한 · 결정 그래프 · 검토 · 작업 큐"] --> db[("PostgreSQL<br/>pg_trgm")]
 ```
 
 - **server가 기록의 주인입니다.** 확정된 결정, 검토 이력, 권한을 server만 정합니다. LLM은 부르지 않습니다.
 - **AI 일꾼은 DB에 접속하지 않습니다.** server의 작업 큐에서 일을 가져가 원문과 기존 카드를 읽고, 결과를 후보로 제출합니다. 오래 걸리는 작업은 임대를 늘려 가며 처리하고, 일꾼이 멈추면 임대가 풀려 다른 일꾼이 다시 시도합니다.
+- **작업 안의 단계는 LangGraph로 잇습니다.** 질문에 답할 때는 검색어를 계획하고(질문을 프로젝트의 다른 언어로 옮긴 검색어 포함) 관련 안건을 지난 결정까지 따라 읽은 뒤, 근거가 모자라면 한 번 더 찾고 씁니다. 긴 회의록은 겹치는 창으로 나눠 동시에 뽑고 같은 카드를 합칩니다. 체크포인트는 두지 않습니다. 다시 하는 것은 server의 작업 재시도가, 사람의 판단은 검토함이 맡습니다.
 - **결정은 카드와 줄의 그래프입니다.** 줄을 앞으로 따라가면 근거, 거꾸로 따라가면 영향입니다. 발언을 정정하면 거꾸로 따라가 그 발언에 기대던 할 일과 답변을 "다시 확인"으로 표시합니다(자동으로 고치지 않음).
 - **모델은 바꿀 수 있습니다.** 모델 호출은 LangChain 어댑터 한 곳(`ai/contexa_ai/llm.py`)에만 있고 `CONTEXA_MODEL=공급자:모델`로 고릅니다. 지시문은 버전 붙은 파일(`prompts/*.vN.md`)로 관리합니다.
 
@@ -79,7 +80,7 @@ flowchart LR
 |---|---|---|
 | [`android/`](android/README.md) | 앱 | Kotlin, Jetpack Compose(Material 3), Navigation, Retrofit, kotlinx.serialization |
 | `server/` | 권한, 결정 그래프, 검토, 작업 큐, MCP | Java 21, Spring Boot, PostgreSQL, Flyway, JdbcClient |
-| [`ai/`](ai/README.md) | 문서를 발언으로 자르고, 후보를 뽑고, 답을 쓴다 | Python 3.11, LangChain, Langfuse(선택, 로컬) |
+| [`ai/`](ai/README.md) | 문서를 발언으로 자르고, 후보를 뽑고, 답을 쓴다 | Python 3.11, LangChain, LangGraph, Langfuse(선택, 로컬) |
 | [`eval/`](eval/README.md), [`data/synthetic/`](data/synthetic/) | 평가 스크립트, 합성 회의록과 정답 라벨 | Python |
 | `docs/` | 설계 | [모듈과 API](docs/contexa_module_map.md), [시나리오](docs/contexa_sinario.md), [배포 계획](docs/contexa_deploy_plan.md) |
 
@@ -226,6 +227,6 @@ PR과 main push마다 GitHub Actions(`.github/workflows/ci.yml`)가 세 묶음�
 
 - 버전 0.1.0. Android 8.0(API 26) 이상에서 돕니다.
 - 구현된 것: 자료함, 원문 뷰어, 검토함(다시 확인 포함), 질문과 인수인계 브리핑, 맥락(확정된 결정·할 일·이력·근거·이름 확인), MCP 커넥터, 평가 스크립트.
-- 다음: 다국어 임베딩 검색, 질의 계획·근거 충분성 검사를 LangGraph로, 더 큰 평가셋, 초대제 데모 서버와 서명된 APK.
+- 다음: 다국어 임베딩 검색, 더 큰 평가셋, 초대제 데모 서버와 서명된 APK.
 - 화면 모양은 [SEED Design](https://github.com/daangn/seed-design)(Apache-2.0)의 토큰과 규격을 따릅니다.
 - 라이선스는 아직 정하지 않았습니다.

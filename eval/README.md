@@ -12,7 +12,9 @@ ai/.venv/bin/python -m unittest discover -s eval/tests -t .   # 채점 규칙·�
 # 아래는 server가 떠 있어야 한다(contexa.dev-seed.enabled: true)
 ai/.venv/bin/python -m eval.retrieval [--k 8] [--errors]      # 검색. 모델 비용 없음
 ai/.venv/bin/python -m eval.extract --oracle                  # 정답을 답으로 넣어 채점·라벨 확인. 비용 없음
-ai/.venv/bin/python -m eval.extract --model 공급자:모델 [--errors]   # 실제 모델 호출. API 비용이 든다
+ai/.venv/bin/python -m eval.extract --model 공급자:모델 [--errors] [--window N --overlap M]   # 실제 모델 호출. API 비용이 든다
+ai/.venv/bin/python -m eval.gather [--errors]                # 근거 모으기. 모델 없이(질문 원문 하나로 한 번). 비용 없음
+ai/.venv/bin/python -m eval.gather --model 공급자:모델       # 질의 계획·근거 판단을 모델로. API 비용이 든다(답은 쓰지 않는다)
 ```
 
 결과는 `eval/results/이름-날짜시각.json`에 남는다(`--out`으로 바꿀 수 있다).
@@ -43,8 +45,8 @@ ai/.venv/bin/python -m eval.extract --model 공급자:모델 [--errors]   # 실�
 
 ## 뽑기 (`extract.py`)
 
-- 회의 4개를 차례로 모델에게 보여 준다. 일꾼과 같은 지시문(`prompts/extract.vN.md`), 같은 자료 모양, 같은 거르기
-  (`extract.to_candidates`)를 쓴다. server에 내지 않으므로 server 검증과 "거절되면 한 번 다시 뽑기"는 들어가지 않는다.
+- 회의 4개를 차례로 모델에게 보여 준다. 일꾼과 같은 흐름(`extract_graph.run`: 창 나누기 → 창마다 뽑기·거르기 → 합치기),
+  같은 지시문(`prompts/extract.vN.md`), 같은 자료 모양, 같은 거르기(`extract.to_candidates`)를 쓴다. server에 내지 않으므로 server 검증과 "거절되면 한 번 다시 뽑기"는 들어가지 않는다.
 - 회의마다 앞 회의의 정답 카드를 "이미 있는 카드"로 보여 준다. 그래서 회의 간 연결(이미 있는 안건·사람에 잇는 줄)을 따로 잴 수 있다.
 - 규칙표는 server에서 받는다(`GET /internal/v1/jobs/ontology`).
 
@@ -63,6 +65,10 @@ ai/.venv/bin/python -m eval.extract --model 공급자:모델 [--errors]   # 실�
 라벨 규칙은 `data/synthetic/README.md`에 있다.
 
 `--oracle`(정답을 답으로 넣기)은 모든 값이 1.0, 오분류·중복·버린 후보 0으로 나온다. 채점과 라벨이 맞물리는지 확인하는 용도이고 성능 수치가 아니다.
+
+합성 회의는 발언이 10개도 안 되어 기본 창(200발언)이면 회의마다 창이 하나다. `--window 3 --overlap 1`처럼 작게 주면 긴 회의처럼 나눠
+창 나누기·합치기까지 잰다. `--oracle --window 3 --overlap 1`도 카드·줄 모두 1.0이다(창마다 정답 전체를 주고, 창 밖 발언만 근거로 댄 후보는
+그 창에서 걸러지며, 여러 창에 나온 같은 카드는 합쳐진다). 이 확인은 평가 테스트(`tests/test_extract_run.py`)에도 들어 있다.
 
 ### 측정값: claude-opus-5-5, 지시문 extract.v1, 라벨 v1 (2026-11-25, 1회 실행)
 
@@ -87,3 +93,22 @@ ai/.venv/bin/python -m eval.extract --model 공급자:모델 [--errors]   # 실�
 - 종류가 틀린 1건: m3:2 "그럼 장소도 본관 강당으로 정하죠"를 라벨은 확정, 모델은 제안으로 봤다. 확정 쪽으로 넘겨짚지 않은 방향의 차이다.
 - 따라서 이 자료는 모델을 가려내기에 쉽고 작다. 다음에 할 일: 라벨 다듬기(규칙을 먼저 정하고 저장된 답을 다시 채점),
   회의를 더 길고 어렵게(반례·암시적 담당·긴 문서), 여러 번 돌려 편차 재기, 더 작은 모델과 비교.
+
+## 근거 모으기 (`gather.py`)
+
+- 검색 평가와 같은 방법으로 합성 문서를 새 프로젝트에 넣고, 같은 질문 21개를 일꾼과 같은 흐름(`answer_graph.gather`)에 넣는다.
+  답 쓰기와 내기는 하지 않는다. 앱 주소(검색·따라가기·현황)를 평가 계정 토큰으로 부른다.
+- 회차마다 그때까지 모은 발언으로 recall을 잰다(1차: 질문 원문 + 계획한 검색어, 2차: 근거가 모자라다고 판단해 더 찾은 것까지).
+  검색어가 늘면 모은 발언도 늘어나므로 질문당 평균 발언 수를 함께 적고, 질문 원문 하나로 k=20(서버 최대)을 찾은 결과도 비교로 적는다.
+- 평가 프로젝트에는 카드가 없다(발언만 넣는다). 그래서 안건 따라가기는 이 평가에 들어가지 않는다.
+
+### 기준선: 모델 없이(질문 원문 하나로 한 번, k=8) (2026-11-26 측정)
+
+| | recall | hit | 같은 언어 | 다른 언어 | 질문당 발언 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 모은 것(1차) | 0.599 | 0.857 | 27/28 | 0/17 | 4.1 |
+| 질문 원문 k=20 | 0.599 | 0.857 | 27/28 | 0/17 | 4.1 |
+
+- 검색 평가의 recall@8과 같다(같은 검색 한 번이므로). k를 20으로 늘려도 그대로다. 글자 검색은 비슷한 글자가 있는 발언만
+  돌려주므로(질문당 평균 4.1개) 더 많이 달라고 해도 더 나오지 않는다. 다른 언어 발언을 찾으려면 검색어 자체가 달라져야 한다.
+- 원본: `results/gather-nomodel-baseline.json`

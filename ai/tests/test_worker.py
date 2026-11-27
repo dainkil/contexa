@@ -3,6 +3,7 @@ import time
 import unittest
 from unittest import mock
 
+from contexa_ai import answer_graph, extract_graph
 from contexa_ai import worker as worker_module
 from contexa_ai.llm import LLMRefused, LLMTransient
 from contexa_ai.server import Lease, LeaseLost, ServerError, ServerRejected
@@ -55,15 +56,36 @@ class FakeServer:
 
 
 class FakeLLM:
-    """모델 흉내. 정해 둔 답을 차례로 돌려주고, 받은 자료를 기억한다."""
+    """모델 흉내. 정해 둔 답을 차례로 돌려주고, 받은 자료를 기억한다.
 
-    def __init__(self, *answers):
+    답 쓰기·후보 뽑기 호출만 answers에서 꺼내고 prompts에 남긴다. 질의 계획(plan)과 근거 판단(judge)은
+    따로 정해 둔 답(기본: 더 찾을 것 없음)을 주고 plans·judges에 남긴다. 목록을 주면 차례로 꺼낸다.
+    """
+
+    NO_PLAN = {"queries": [], "topics": []}
+    ENOUGH = {"enough": True, "missing": "", "queries": [], "topics": []}
+
+    def __init__(self, *answers, plan=None, judge=None):
         self._answers = list(answers)
+        self._plan = plan if plan is not None else self.NO_PLAN
+        self._judge = judge if judge is not None else self.ENOUGH
         self.prompts = []
+        self.plans = []
+        self.judges = []
 
     def structured(self, system, user, schema):
+        if schema is answer_graph.PLAN_SCHEMA:
+            self.plans.append(user)
+            return self._next(self._plan)
+        if schema is answer_graph.JUDGE_SCHEMA:
+            self.judges.append(user)
+            return self._next(self._judge)
         self.prompts.append(user)
-        answer = self._answers.pop(0)
+        return self._next(self._answers)
+
+    @staticmethod
+    def _next(source):
+        answer = source.pop(0) if isinstance(source, list) else source
         if isinstance(answer, BaseException):
             raise answer
         return answer
@@ -121,7 +143,7 @@ class WorkerTest(unittest.TestCase):
 
         self.assertEqual(len(llm.prompts), 2)
         self.assertIn("허용되지 않은 줄: CONDITION -REQUIRES-> TASK", llm.prompts[1])
-        self.assertEqual([node["key"] for node in server.submitted[0]["candidates"]["nodes"]], ["r:c1", "r:c2"])
+        self.assertEqual([node["key"] for node in server.submitted[0]["candidates"]["nodes"]], ["r0:c1", "r0:c2"])
         self.assertEqual(server.failures, [])
 
     def test_두_번째도_거절되면_다시_시도하지_않는_실패로_알린다(self):
@@ -201,7 +223,7 @@ class WorkerTest(unittest.TestCase):
         server = Expired("EXTRACT")
         llm = SlowLLM(0.3, GOOD, GOOD)
 
-        with mock.patch.object(worker_module, "WINDOW", 1):  # 발언 2개 → 창 2개
+        with mock.patch.object(extract_graph, "WINDOW", 1):  # 발언 2개 → 창 2개(차례로)
             Worker(server, llm, heartbeat_seconds=0.02).run_once()
 
         self.assertEqual(server.heartbeats, 1)  # 잃은 뒤로는 더 알리지 않는다
@@ -218,6 +240,19 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(server.failures, [("일꾼이 작업 중에 꺼졌다", True)])
         self.assertEqual(server.submitted, [])
         self.assertFalse(any(t.name.startswith("heartbeat-") for t in threading.enumerate()))
+
+    def test_꺼지라는_신호가_오면_아직_부르지_않은_모델은_부르지_않는다(self):
+        # 신호 처리기는 STOP을 켠다. 창을 여럿 동시에 돌리는 중이면 남은 창이 이것을 보고 멈춘다
+        server = FakeServer("EXTRACT")
+        llm = FakeLLM(GOOD)
+        worker_module.STOP.set()
+        self.addCleanup(worker_module.STOP.clear)
+
+        with self.assertRaises(Stopping):
+            Worker(server, llm).run_once()
+
+        self.assertEqual(llm.prompts, [])
+        self.assertEqual(server.failures, [("일꾼이 작업 중에 꺼졌다", True)])
 
     def test_작업을_가져온_직후에_꺼져도_다시_해_볼_실패로_알린다(self):
         # 처리에 들어가기 전(로그·추적을 여는 사이)에 신호가 와도 임대가 끝날 때까지 묶이지 않는다

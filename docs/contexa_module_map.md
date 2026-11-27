@@ -609,11 +609,25 @@ ApiExceptionHandler 로그인 필요 401, 권한 없음 403, 없음 404, 잘못�
 
 ### B.9 Python `ai-pipeline` (폴더 `ai/`)
 ```
-worker.py    Worker.run_once()       일을 하나 가져와 종류에 맞게 처리. PARSE, EXTRACT, GENERATE 구현됨
+worker.py    Worker.run_once()       일을 하나 가져와 종류에 맞게 처리. PARSE(규칙), EXTRACT(extract_graph), GENERATE(answer_graph)
              _Keepalive              작업 중 120초마다 heartbeat를 보내는 스레드. 임대를 잃으면 다음 모델 호출 전에 멈춘다
-             main()                  SIGTERM·SIGINT를 받으면 하던 작업을 다시 해 볼 실패로 알리고 끝낸다.
+             main()                  SIGTERM·SIGINT를 받으면 STOP을 켜고, 하던 작업을 다시 해 볼 실패로 알리고 끝낸다.
+                                     동시에 도는 창도 STOP을 보고 아직 부르지 않은 모델은 부르지 않는다.
                                      server에 닿지 않으면 쉬는 시간을 두 배씩 늘린다(상한 300초)
-answer.py    gather(server, lease, question) : Context        근거 검색 + 걸린 카드에서 줄 따라가기 + 프로젝트 현황
+answer_graph.py  run(source, llm, check, languages) : dict    GENERATE 단계를 잇는 LangGraph(11/26). 체크포인터·interrupt 없음
+                 load → plan(plan.v1: 검색어·안건 고르기, 질문 원문이 첫 검색어, 상한 6) → retrieve(검색어마다 검색,
+                 고른 안건은 BASIS 깊이 3으로 따라가기, state.topic_ids) → judge(judge.v1: 모자라면 한 번 더, MAX_ROUNDS 2)
+                 → write(인용 검사, 낼 수 없으면 같은 근거로 다시) → submit(받지 않으면 처음부터 다시 읽고 다시 쓰기, MAX_REPAIRS 1)
+                 gather(source, llm|None, languages) : dict    답 쓰기 없이 모으기만(평가용). llm이 없으면 질문 원문으로 한 번
+                 JobSource(server, lease)                      일꾼의 뒷문 주소를 Source(request·state·search·trace·submit)로 잇는다
+extract_graph.py run(llm, document, spans, state, ontology, check, submit, concurrency, window, overlap) : Result
+                 EXTRACT 단계를 잇는 LangGraph(11/26). 발언 200개씩 20개 겹친 창(windows_of) → 창마다 Send로 뽑기(동시에
+                 concurrency개, key 앞에 w0: …) → merge(다른 창의 같은 카드: 종류가 같고 정규화한 글이 같거나 근거 발언이
+                 똑같으면 합침, 인물·기관은 이름이 같을 때만) → submit(거절되면 windows_to_redo로 문제의 창만 r0: …로 다시 뽑기)
+                 창은 예외를 올리지 않고 처음 난 실패를 기록하고, merge가 다시 올린다(동시 실행 중 어느 예외가 올라올지 정하기 위해)
+config.py    Config.from_env()       CONTEXA_LANGUAGES(기본 ko,en,ar → 질의 계획의 언어), CONTEXA_EXTRACT_CONCURRENCY(기본 2)
+answer.py    gather(server, lease, question) : Context        질문 원문 하나로 한 번 모으기(answer_graph의 가장 단순한 경우와 같다)
+             trace_starts(packet, skip) · merge(packets) : Context   걸린 카드 고르기, 여러 답변서 합치고 이름표 붙이기
              build_user_prompt(request, context) : str
              to_draft(output, context) : dict                  모델의 답 → 서버가 받는 글. 인용 검사. 인용이 없으면 거절,
                                                                found:false(근거 없음)면 200자 안의 답을 noEvidence로 낸다.
@@ -638,7 +652,8 @@ server.py    ServerClient            뒷문 클라이언트 (표준 라이브러
 - 문서 안의 문장은 자료일 뿐 지시가 아니라고 모델에게 알린다(NFR-020). 그와 별개로, AI 인턴이 할 수 있는 일은 서버 쪽에서 "후보 제출"로 제한되어 있다.
 - 답변 쓰기: 모델에게 카드는 `f1`, 줄은 `r1`, 발언은 `s1`로 보여 주고 확인 상태(확인됨/AI 후보)와 "아직 정리되지 않은 것"을 함께 준다. 모델이 본문에 적은 `[s3]`이 보여 준 발언이 아니거나 인용이 하나도 없으면 그 답은 버리고 한 번 다시 쓰게 한다. 모델이 근거를 찾지 못했다고(`found: false`) 하면 인용 없는 짧은 답만 받아 `noEvidence`로 낸다(프롬프트 `answer.v2`, 11/25). 통과하면 `[1]`, `[2]`로 바꿔 낸다.
 - 답이 참고한 카드·줄·발언은 읽었을 때의 버전과 함께 낸다. 서버가 "그사이 바뀌었다"고 거절하면 근거부터 다시 읽고 한 번 다시 쓴다.
-- 아직 없는 것: 검색용 임베딩. Claude API에는 임베딩이 없어서 검색은 글자 일치로 만들었다. 임베딩은 Hugging Face 다국어 모델(bge-m3)을 로컬에서 돌려 붙인다. LangGraph 그래프도 아직 없다.
+- 아직 없는 것: 검색용 임베딩. Claude API에는 임베딩이 없어서 검색은 글자 일치로 만들었다. 임베딩은 Hugging Face 다국어 모델(bge-m3)을 로컬에서 돌려 붙인다. 그전까지 다른 언어 발언은 질의 계획이 옮긴 검색어로만 찾는다.
+- 아직 없는 것(EXTRACT): 창끼리 결과를 보지 못하므로 겹치지 않는 창 사이의 줄은 생기지 않는다. 합치기는 글·근거가 똑같을 때만 한다(비슷한 것은 두 카드로 남아 검토함에서 사람이 거절한다).
 
 ### B.10 Android 앱
 `ContextApi`만 `/context/*`를 호출하고, 화면은 돌려받은 `ContextPacket`을 엮어 그린다. 권한·상태 계산은 server가 한다. React 웹은 2026-11-21에 지우고 이 앱으로 바꿨다(웹 코드는 git 기록에 있다).
